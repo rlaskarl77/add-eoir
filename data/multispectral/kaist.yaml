@@ -1,0 +1,27 @@
+# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
+# ADD EO/IR dataset
+
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+dataset_name: KAIST
+path: /131_data/datasets/kaist-rgbt # dataset root dir
+
+train_rgb: kaist-rgbt-RGB-train.txt # train images (relative to 'path')
+val_rgb: kaist-rgbt-RGB-test.txt  # val images (relative to 'path')
+# test_rgb: kaist-rgbt-RGB-test.txt
+
+train_ir: kaist-rgbt-Thermal-train.txt # train images (relative to 'path')
+val_ir: kaist-rgbt-Thermal-test.txt  # val images (relative to 'path')
+# test_ir: kaist-rgbt-Thermal-test.txt
+
+val_anno_json_rgb: annotations/kaist-rgbt-RGB-test.json
+# test_anno_json_rgb: annotations/kaist-rgbt-RGB-test.json
+
+val_anno_json_ir: annotations/kaist-rgbt-Thermal-test.json
+# test_anno_json_ir: annotations/kaist-rgbt-Thermal-test.json
+
+train: kaist-rgbt-RGB-train.txt # train images (relative to 'path')
+val: kaist-rgbt-RGB-test.txt # val images (relative to 'path')
+
+# Classes
+names:
+  0: person
