@@ -677,6 +677,103 @@ def multispectral_copy_paste(im, labels, segments, im2, labels2, segments2, p=0.
 
     return im_result, labels, segments
 
+def multispectral_box_paste(im, labels, segments, im2, labels2, segments2, p=0.5, scale_alpha=16.0, translation=True, ellipse_size=1.2):
+    # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
+    
+    if np.random.random()<0.5:
+        im, im2 = im2, im
+        labels, labels2 = labels2, labels
+        segments, segments2 = segments2, segments
+        
+    n = len(labels2)
+    if p and n:
+        h, w, c = im.shape  # height, width, channels
+        im_result = im.copy()
+        # im_result = np.zeros_like(im)
+        
+        # print(len(labels), len(segments), len(labels2), len(segments2))
+        
+        # labels = np.array([]).reshape((0, 5))
+        
+        for j in random.sample(range(n), k=round(p * n)):
+            l = labels2[j]
+
+
+            cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
+            
+            if (bw < 4) or (bh < 4):
+                continue
+
+            r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
+            
+            
+            if (bw*r < 4) or (bh*r < 4):
+                continue
+
+            scaled_l = l.copy()
+            scaled_l[1:] = xywh2xyxy(np.array([cx, cy, bw*r, bh*r], dtype=np.float32)[np.newaxis, :]).flatten()
+            
+            t = (np.random.uniform(-scaled_l[1], (w-scaled_l[3])), 
+                np.random.uniform(-scaled_l[2], (h-scaled_l[4]))) if translation is True \
+                else (0, 0)
+
+            scaled_l[1] += t[0]
+            scaled_l[2] += t[1]
+            scaled_l[3] += t[0]
+            scaled_l[4] += t[1]
+
+            scaled_l[1:] = w - scaled_l[3], scaled_l[2], w - scaled_l[1], scaled_l[4]
+            ioa = bbox_ioa(scaled_l[1:], labels[:, 1:5])  # intersection over area
+            is_valid = box_candidates(l[1:], scaled_l[1:])
+
+            if (ioa < 0.20).all() and is_valid:  # allow 20% obscuration of existing labels
+
+                mask = np.zeros(im.shape, np.uint8)
+                im_source = im2.copy()
+                
+                # alpha = int(255.*np.random.beta(32.0, 32.0))
+                alpha = 255.
+                
+                # b = ellipse_size * np.random.beta(32.0, 32.0)
+                b = 1.25
+                
+                mask = cv2.ellipse(mask, ((cx, cy), (bw*b, bh*b), 0), (alpha, alpha, alpha), thickness=-1)
+                mask = cv2.GaussianBlur(mask, (51, 51), 0)
+                
+                im_roi = cv2.flip(im_source, 1)
+                mask = cv2.flip(mask, 1)
+
+                # Center
+                C = np.eye(3)
+                C[0, 2] = -(w-cx)
+                C[1, 2] = -cy
+
+                # Rotation and Scale
+                R = np.eye(3)
+                a = 0 # random.uniform(-degrees, degrees)
+                # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+                R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=r)
+
+                # Translation
+                T = np.eye(3)
+                T[0, 2] = (w-cx) - t[0]
+                T[1, 2] = cy + t[1]
+                # Combined rotation matrix
+                M = T @ R @ C  # order of operations (right to left) is IMPORTANT
+                
+                im_roi = cv2.warpAffine(im_roi, M[:2], dsize=(w, h))
+                mask = cv2.warpAffine(mask, M[:2], dsize=(w, h))
+                mask = mask / 255.
+                
+                im_result = im_result*(1-mask) + im_roi*mask
+
+            
+                labels = np.concatenate((labels, [[l[0], *scaled_l[1:]]]), 0)
+    
+    im_result = im_result.astype(np.uint8)
+
+    return im_result, labels, segments
+
 def mixup(im, labels, im2, labels2):
     # Applies MixUp augmentation https://arxiv.org/pdf/1710.09412.pdf
     r = np.random.beta(32.0, 32.0)  # mixup ratio, alpha=beta=32.0
