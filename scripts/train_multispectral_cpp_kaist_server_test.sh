@@ -1,9 +1,9 @@
-nohup python -um torch.distributed.run --nproc_per_node 4 train_multispectral.py \
-    --device 0,1,2,3 \
+nohup python -u train_multispectral.py \
+    --device 0 \
     --data data/multispectral/kaist.yaml \
     --weights yolov5l.pt \
     --hyp data/hyps/hyp.kaist-multispectral.yaml \
-    --batch-size 16 \
+    --batch-size 4 \
     --exist-ok \
     --epochs 1 \
     --entity cvlabnam \
