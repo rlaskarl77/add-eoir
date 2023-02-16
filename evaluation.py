@@ -4,19 +4,6 @@ Validate a trained YOLOv5 detection model on a detection dataset
 
 Usage:
     $ python val.py --weights yolov5s.pt --data coco128.yaml --img 640
-
-Usage - formats:
-    $ python val.py --weights yolov5s.pt                 # PyTorch
-                              yolov5s.torchscript        # TorchScript
-                              yolov5s.onnx               # ONNX Runtime or OpenCV DNN with --dnn
-                              yolov5s_openvino_model     # OpenVINO
-                              yolov5s.engine             # TensorRT
-                              yolov5s.mlmodel            # CoreML (macOS-only)
-                              yolov5s_saved_model        # TensorFlow SavedModel
-                              yolov5s.pb                 # TensorFlow GraphDef
-                              yolov5s.tflite             # TensorFlow Lite
-                              yolov5s_edgetpu.tflite     # TensorFlow Edge TPU
-                              yolov5s_paddle_model       # PaddlePaddle
 """
 
 import argparse
@@ -56,16 +43,9 @@ def save_one_txt(predn, save_conf, shape, file):
             f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
 
-def save_one_json(predn, jdict, path, class_map, image_id_dict=None, jdict_server=None):
+def save_one_json(predn, jdict, path, class_map):
     # Save one JSON result {"image_id": 42, "category_id": 18, "bbox": [258.15, 41.29, 348.26, 243.78], "score": 0.236}
-    if jdict_server is not None:    # KAIST-RGBT
-        image_name = str(path).split('.')[0]
-        set, video_num, type, image_idx = image_name.split('/')[-4:]
-        image_id = os.path.join(set, video_num, type, image_idx)
-    elif image_id_dict:
-        image_id = image_id_dict[path.stem]
-    else:
-        image_id = int(path.stem) if path.stem.isnumeric() else path.stem
+    image_id = int(path.stem) if path.stem.isnumeric() else path.stem
     box = xyxy2xywh(predn[:, :4])  # xywh
     box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
     for p, b in zip(predn.tolist(), box.tolist()):
@@ -74,12 +54,7 @@ def save_one_json(predn, jdict, path, class_map, image_id_dict=None, jdict_serve
             'category_id': class_map[int(p[5])],
             'bbox': [round(x, 3) for x in b],
             'score': round(p[4], 5)})
-        if jdict_server is not None:    # KAIST-RGBT
-            jdict_server.append({'image_id': image_id_dict[image_id],
-                                 'category_id': class_map[int(p[5])],
-                                 'bbox': [round(x, 3) for x in b],
-                                 'score': round(p[4], 5)})
-            
+
 
 def process_batch(detections, labels, iouv):
     """
@@ -121,12 +96,10 @@ def run(
         single_cls=False,  # treat as single-class dataset
         augment=False,  # augmented inference
         verbose=False,  # verbose output
-        person_only=False,  # evaluate only person detection results (cls_id=0)
         save_txt=False,  # save results to *.txt
         save_hybrid=False,  # save label+prediction hybrid results to *.txt
         save_conf=False,  # save confidences in --save-txt labels
         save_json=False,  # save a COCO-JSON results file
-        eval_tod=False,   # evaluate with ADD TOD criteria
         project=ROOT / 'runs/val',  # save to project/name
         name='exp',  # save to project/name
         exist_ok=False,  # existing project/name ok, do not increment
@@ -138,39 +111,30 @@ def run(
         plots=True,
         callbacks=Callbacks(),
         compute_loss=None,
-        phase=None
 ):
     # Initialize/load model and set device
     training = model is not None
-    if training:  # called by train.py
-        device, pt, jit, engine = next(model.parameters()).device, True, False, False  # get model device, PyTorch model
-        half &= device.type != 'cpu'  # half precision only supported on CUDA
-        model.half() if half else model.float()
-    else:  # called directly
-        device = select_device(device, batch_size=batch_size)
+    device = select_device(device, batch_size=batch_size)
 
-        # Directories
-        save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
-        (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+    # Directories
+    save_dir = increment_path(Path(project) / name, exist_ok=exist_ok)  # increment run
+    (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
-        # Load model
-        model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
-        stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
-        imgsz = check_img_size(imgsz, s=stride)  # check image size
-        half = model.fp16  # FP16 supported on limited backends with CUDA
-        if engine:
-            batch_size = model.batch_size
-        else:
-            device = model.device
-            if not (pt or jit):
-                batch_size = 1  # export.py models default to batch-size 1
-                LOGGER.info(f'Forcing --batch-size 1 square inference (1,3,{imgsz},{imgsz}) for non-PyTorch models')
+    # Load model
+    model = DetectMultiBackend(weights, device=device, dnn=dnn, data=data, fp16=half)
+    stride, pt, jit, engine = model.stride, model.pt, model.jit, model.engine
+    imgsz = check_img_size(imgsz, s=stride)  # check image size
+    half = model.fp16  # FP16 supported on limited backends with CUDA
+    if engine:
+        batch_size = model.batch_size
+    else:
+        device = model.device
+        if not (pt or jit):
+            batch_size = 1  # export.py models default to batch-size 1
+            LOGGER.info(f'Forcing --batch-size 1 square inference (1,3,{imgsz},{imgsz}) for non-PyTorch models')
 
-        # Data
-        data = check_dataset(data)  # check
-
-    # Dataset name
-    dataset_name = data['dataset_name'] # ex) coco, ADD-EOIR-EO
+    # Data
+    data = check_dataset(data)  # check
 
     # Configure
     model.eval()
@@ -187,7 +151,8 @@ def run(
             assert ncm == nc, f'{weights} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
                               f'classes). Pass correct combination of --weights and --data that are trained together.'
         model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
-        pad, rect = (0.0, False) if task == 'speed' else (0.5, pt)  # square inference for benchmarks
+        pad = 0.0 if task in ('speed', 'benchmark') else 0.5
+        rect = False if task == 'benchmark' else pt  # square inference for benchmarks
         task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader = create_dataloader(data[task],
                                        imgsz,
@@ -198,42 +163,18 @@ def run(
                                        rect=rect,
                                        workers=workers,
                                        prefix=colorstr(f'{task}: '))[0]
-    # Read Image ID for ADD EOIR dataset & KAIST-RGBT dataset
-    if save_json and 'ADD' in dataset_name:
-        anno_json = str(Path(data.get('path')) / Path(data.get(f'{task}_anno_json')))
-        image_id_dict = {}
-        anns = json.load(open(anno_json))
-        for img_info in anns['images']:
-            image_id_dict[img_info['file_name'].split('.')[0]] = img_info['id']
-    elif save_json and 'kaist-rgbt' in dataset_name:
-        image_id_dict = {}
-        image_list_file = os.path.join(data.get('path'), data.get(task))
-        with open(image_list_file) as file:
-            for i, line in enumerate(file):
-                set, video, type, image_idx = line.split('/')[-4:]
-                id = os.path.join(set, video, type, image_idx.split('.')[0])
-                image_id_dict[id] = i
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = model.names if hasattr(model, 'names') else model.module.names  # get class names
     if isinstance(names, (list, tuple)):  # old format
         names = dict(enumerate(names))
-    if is_coco:
-        class_map = coco80_to_coco91_class()
-    elif 'ADD' in dataset_name:
-        class_map = [1,2]   # person, animal
-    elif 'kaist-rgbt' in dataset_name:
-        class_map = [1]     # person
-    else:
-        class_map = list(range(1000))
+    class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
     s = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
     tp, fp, p, r, f1, mp, mr, map50, ap50, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dt = Profile(), Profile(), Profile()  # profiling times
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
-    if 'kaist-rgbt' in dataset_name:
-        jdict_server = []
     callbacks.run('on_val_start')
     pbar = tqdm(dataloader, desc=s, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
@@ -268,10 +209,6 @@ def run(
 
         # Metrics
         for si, pred in enumerate(preds):
-            
-            if person_only:
-                pred = pred[pred[:, 5] == 0]  # see only pedestrian prediction
-
             labels = targets[targets[:, 0] == si, 1:]
             nl, npr = labels.shape[0], pred.shape[0]  # number of labels, predictions
             path, shape = Path(paths[si]), shapes[si][0]
@@ -305,13 +242,7 @@ def run(
             if save_txt:
                 save_one_txt(predn, save_conf, shape, file=save_dir / 'labels' / f'{path.stem}.txt')
             if save_json:
-                if 'ADD' in dataset_name:
-                    save_one_json(predn, jdict, path, class_map, image_id_dict)  # append to COCO-JSON dictionary
-                elif 'kaist-rgbt' in dataset_name:
-                    save_one_json(predn, jdict, path, class_map, image_id_dict, jdict_server)
-                else:
-                    save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
-
+                save_one_json(predn, jdict, path, class_map)  # append to COCO-JSON dictionary
             callbacks.run('on_val_image_end', pred, predn, path, names, im[si])
 
         # Plot images
@@ -325,10 +256,6 @@ def run(
     stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
         tp, fp, p, r, f1, ap, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
-
-        if person_only:
-            tp, fp, p, r, f1, ap, ap_class = tp[0:1], fp[0:1], p[0:1], r[0:1], f1[0:1], ap[0:1], ap_class[0:1]
-
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # number of targets per class
@@ -358,73 +285,27 @@ def run(
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        
-        coco_path = Path(data.get('path', '../coco'))
-        
-        if is_coco:
-            anno_json = str(coco_path / 'annotations/instances_val2017.json')  # annotations json
-        elif 'kaist-rgbt' in dataset_name:
-            anno_json = str(Path(data.get('path')) / Path(data.get(f'{task}_anno_json')))
-        elif 'ADD' in dataset_name:            
-            anno_json = str(coco_path / data.get(f'{task}_anno_json_rgb')) if phase=='rgb' \
-                    else str(coco_path / data.get(f'{task}_anno_json_ir')) if phase=='ir' \
-                    else str(coco_path / data.get(f'{task}_anno_json'))
-
+        anno_json = str(Path(data.get('path', '../coco')) / 'annotations/instances_val2017.json')  # annotations json
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
         LOGGER.info(f'\nEvaluating pycocotools mAP... saving {pred_json}...')
         with open(pred_json, 'w') as f:
             json.dump(jdict, f)
 
-        if 'kaist-rgbt' in dataset_name:    # save predictions json for server evaluation
-            pred_json_server = str(save_dir / f"{w}_predictions_server.json")  # predictions json
-            LOGGER.info(f'\nSaving {pred_json_server}...')
-            jdict_server_sort = sorted(jdict_server, key=lambda d: d['image_id'])
-            with open(pred_json_server, 'w') as f:
-                json.dump(jdict_server_sort, f)
-
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
             check_requirements('pycocotools')
-            # from pycocotools.coco import COCO
             from utils.cocoapi.pycocotools.coco import COCO
-            from pycocotools.cocoeval import COCOeval
-            if eval_tod:
-                from utils.cocoapi.pycocotools.cocoeval_tod import COCOevalTOD as COCOeval
+            from utils.cocoapi.pycocotools.cocoeval import COCOeval
+            from utils.cocoapi.pycocotools.yoloeval import YOLOeval
 
             anno = COCO(anno_json)  # init annotations api
             pred = anno.loadRes(pred_json)  # init predictions api
             eval = COCOeval(anno, pred, 'bbox')
-
-            if person_only:
-                eval.params.catIds = [1]  # evaluate only person
             if is_coco:
                 eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.im_files]  # image IDs to evaluate
-            else:
-                eval.params.imgIds = sorted(anno.getImgIds())
-
-            ####### for ss ########
-            # if eval_tod and dataset_name == 'ADD-EOIR-EO':
-            if eval_tod:
-                rng = [0, 16, 32, 96, 1e5]   # criteria on width=640
-                rng = [k / 640 * 1024 for k in rng] # criteria on width=1024
-                eval.params.areaRng = [[rng[i]**2, rng[i+1]**2] for i in range(4)]
-                eval.params.areaRng = [[0 ** 2, 1e5 ** 2]] + eval.params.areaRng
-            #######################
-
             eval.evaluate()
             eval.accumulate()
             eval.summarize()
-            if eval_tod:
-                map, map50 = eval.stats[14], eval.stats[4]
-            else:
-                map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-
-            # print stats in one line for easy logging
-            for k in eval.stats:
-                print(f'{k:.3f}, ', end='')
-            print(' \n')
-            # with open('val_cache.txt', 'w') as f:
-            #     for k in eval.stats:
-            #         f.write(f'{k:.3f}, ')  # print in one line for easy copy-paste
+            map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
         except Exception as e:
             LOGGER.info(f'pycocotools unable to run: {e}')
 
@@ -441,6 +322,8 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
+
+    # yolo validation
     parser.add_argument('--data', type=str, default=ROOT / 'data/coco128.yaml', help='dataset.yaml path')
     parser.add_argument('--weights', nargs='+', type=str, default=ROOT / 'yolov5s.pt', help='model path(s)')
     parser.add_argument('--batch-size', type=int, default=32, help='batch size')
@@ -463,9 +346,9 @@ def parse_opt():
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
-    parser.add_argument('--phase', default=None, help='rgb or ir or None')
-    parser.add_argument('--person-only', action='store_true', help='evaluate only person detection results')
-    parser.add_argument('--eval-tod', action='store_true', help='evaluate with ADD TOD criteria')
+
+    # evaluation
+    
     opt = parser.parse_args()
     opt.data = check_yaml(opt.data)  # check YAML
     opt.save_json |= opt.data.endswith('coco.yaml')

@@ -12,8 +12,8 @@ import torch
 import torchvision.transforms as T
 import torchvision.transforms.functional as TF
 
-from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box, xywhn2xyxy
-from utils.metrics import bbox_ioa
+from utils.general import LOGGER, check_version, colorstr, resample_segments, segment2box, xywh2xyxy, xywhn2xyxy, xyxy2xywh
+from utils.metrics import bbox_ioa, bbox_iou
 
 IMAGENET_MEAN = 0.485, 0.456, 0.406  # RGB mean
 IMAGENET_STD = 0.229, 0.224, 0.225  # RGB standard deviation
@@ -261,6 +261,150 @@ def copy_paste(im, labels, segments, p=0.5):
     return im, labels, segments
 
 
+def copy_paste_with_size_variant(im, labels, segments, p=0.5):
+    # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
+    n = len(segments)
+    if p and n:
+        h, w, c = im.shape  # height, width, channels
+        im_result = im.copy()
+        # im_result = np.zeros_like(im)
+        for j in random.sample(range(n), k=round(p * n)):
+            l, s = labels[j], segments[j]
+
+            r = np.random.beta(16.0, 16.0) + 0.5 # scale factor with mu=0.5, sigma~=0.25
+
+            cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
+
+            if (bw < 1e-8) or (bh < 1e-8):
+                continue
+
+            scaled_l = l.copy()
+            scaled_l[1:] = xywh2xyxy(np.array([cx, cy, bw*r, bh*r], dtype=np.float32)[np.newaxis, :]).flatten()
+            
+            scaled_s = s.copy()
+            scaled_s[:, 0] -= cx
+            scaled_s[:, 0] *= r
+            scaled_s[:, 0] += cx
+            scaled_s[:, 1] -= cy
+            scaled_s[:, 1] *= r
+            scaled_s[:, 1] += cy
+
+            box = w - scaled_l[3], scaled_l[2], w - scaled_l[1], scaled_l[4]
+            ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area
+
+            if (ioa < 0.30).all():  # allow 30% obscuration of existing labels
+
+                im_new = np.zeros(im.shape, np.uint8)
+                im_source = im.copy()
+                cv2.drawContours(im_new, [s.astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
+                im_roi = cv2.bitwise_and(src1=im_source, src2=im_new)
+                im_roi = cv2.flip(im_roi, 1)
+
+                # Center
+                C = np.eye(3)
+                C[0, 2] = -(w-cx)
+                C[1, 2] = -cy
+
+                # Rotation and Scale
+                R = np.eye(3)
+                a = 0 # random.uniform(-degrees, degrees)
+                # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+                R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=r)
+
+                # Translation
+                T = np.eye(3)
+                T[0, 2] = (w-cx)
+                T[1, 2] = cy
+                # Combined rotation matrix
+                M = T @ R @ C  # order of operations (right to left) is IMPORTANT
+                im_roi = cv2.warpAffine(im_roi, M[:2], dsize=(w, h))
+
+                i = im_roi > 0
+                im_result[i] = im_roi[i]
+
+            
+                labels = np.concatenate((labels, [[l[0], *box]]), 0)
+                segments.append(np.concatenate((w - scaled_s[:, 0:1], scaled_s[:, 1:2]), 1))
+
+    return im_result, labels, segments
+
+def copy_paste_with_size_and_position_variant(im, labels, segments, p=0.5, scale_alpha=16.0, translation=True):
+    # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
+    n = len(segments)
+    if p and n:
+        h, w, c = im.shape  # height, width, channels
+        im_result = im.copy()
+        # im_result = np.zeros_like(im)
+        for j in random.sample(range(n), k=round(p * n)):
+            l, s = labels[j], segments[j]
+
+            r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
+
+            cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
+
+            if (bw < 1e-8) or (bh < 1e-8):
+                continue
+
+            scaled_l = l.copy()
+            scaled_l[1:] = xywh2xyxy(np.array([cx, cy, bw*r, bh*r], dtype=np.float32)[np.newaxis, :]).flatten()
+            
+            t = (np.random.uniform(-scaled_l[1], (w-scaled_l[3])), 
+                np.random.uniform(-scaled_l[2], (h-scaled_l[4]))) if translation is True \
+                else (0, 0)
+
+            scaled_l[1] += t[0]
+            scaled_l[2] += t[1]
+            scaled_l[3] += t[0]
+            scaled_l[4] += t[1]
+
+            scaled_s = s.copy()
+            scaled_s[:, 0] -= cx
+            scaled_s[:, 0] *= r
+            scaled_s[:, 0] += cx + t[0]
+            scaled_s[:, 1] -= cy
+            scaled_s[:, 1] *= r
+            scaled_s[:, 1] += cy + t[1]
+
+            box = w - scaled_l[3], scaled_l[2], w - scaled_l[1], scaled_l[4]
+            ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area
+            is_valid = box_candidates(l[1:], scaled_l[1:])
+
+            if (ioa < 0.30).all() and is_valid:  # allow 30% obscuration of existing labels
+
+                im_new = np.zeros(im.shape, np.uint8)
+                im_source = im.copy()
+                cv2.drawContours(im_new, [s.astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
+                im_roi = cv2.bitwise_and(src1=im_source, src2=im_new)
+                im_roi = cv2.flip(im_roi, 1)
+
+                # Center
+                C = np.eye(3)
+                C[0, 2] = -(w-cx)
+                C[1, 2] = -cy
+
+                # Rotation and Scale
+                R = np.eye(3)
+                a = 0 # random.uniform(-degrees, degrees)
+                # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+                R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=r)
+
+                # Translation
+                T = np.eye(3)
+                T[0, 2] = (w-cx) - t[0]
+                T[1, 2] = cy + t[1]
+                # Combined rotation matrix
+                M = T @ R @ C  # order of operations (right to left) is IMPORTANT
+                im_roi = cv2.warpAffine(im_roi, M[:2], dsize=(w, h))
+
+                i = im_roi > 0
+                im_result[i] = im_roi[i]
+
+            
+                labels = np.concatenate((labels, [[l[0], *box]]), 0)
+                segments.append(np.concatenate((w - scaled_s[:, 0:1], scaled_s[:, 1:2]), 1))
+
+    return im_result, labels, segments
+
 def cutout(im, labels, p=0.5):
     # Applies image cutout augmentation https://arxiv.org/abs/1708.04552
     if random.random() < p:
@@ -287,6 +431,253 @@ def cutout(im, labels, p=0.5):
 
     return labels
 
+
+def multispectral_random(im, labels, im2, labels2, segments=None, segments2=None, p=.5, b=1.0):
+    # assert len(labels)==len(labels2), f'labels: {len(labels)} does not correspond to labels2: {len(labels2)}'
+    if np.random.random()<0.5:
+        im, im2 = im2, im
+        labels, labels2 = labels2, labels
+        segments, segments2 = segments2, segments
+
+    h, w = im.shape[:2]
+
+    # label_indexes = np.random.beta(32.0, 32.0, (len(labels))) < 0.5
+
+    # mask = np.zeros_like(im)
+    # labels2_selected = labels2[label_indexes]
+    # for label in labels2_selected:
+    #     cx, cy, cw, ch = label[1]*w, label[2]*h, label[3]*w*b, label[4]*h*b
+    #     mask = cv2.ellipse(mask, ((cx, cy), (cw, ch), 0), (255, 255, 255), thickness=-1)
+    # mask = mask/255.
+    # mixed_image = im * (1-mask) + im2 * mask
+    # mixed_labels = np.concatenate((labels[~label_indexes], labels2[label_indexes]), 0)
+
+    # if len(segments)>0:
+    #     segments = np.concatenate((segments[~label_indexes], segments2[label_indexes]), 0)
+
+    # return mixed_image, mixed_labels, segments
+
+    return im, labels, segments
+
+
+def multispectral_mixup(im, labels, im2, labels2, segments=None, segments2=None, p=.5, b=1.0):
+    # assert len(labels)==len(labels2), f'labels: {len(labels)} does not correspond to labels2: {len(labels2)}'
+    if np.random.random()<0.5:
+        im, im2 = im2, im
+        labels, labels2 = labels2, labels
+        segments, segments2 = segments2, segments
+
+    h, w = im.shape[:2]
+
+    # label_indexes = np.random.beta(32.0, 32.0, (len(labels))) < 0.5
+
+    # mask = np.zeros_like(im)
+    # labels2_selected = labels2[label_indexes]
+    # for label in labels2_selected:
+    #     cx, cy, cw, ch = label[1]*w, label[2]*h, label[3]*w*b, label[4]*h*b
+    #     mask = cv2.ellipse(mask, ((cx, cy), (cw, ch), 0), (255, 255, 255), thickness=-1)
+    # mask = mask/255.
+    # mixed_image = im * (1-mask) + im2 * mask
+    # mixed_labels = np.concatenate((labels[~label_indexes], labels2[label_indexes]), 0)
+
+    # if len(segments)>0:
+    #     segments = np.concatenate((segments[~label_indexes], segments2[label_indexes]), 0)
+
+    # return mixed_image, mixed_labels, segments
+
+    # return im, labels, segments
+
+    mask = np.zeros_like(im)
+    for label in labels2:
+        alpha = int(255.*np.random.beta(32.0, 32.0))
+        cx, cy, cw, ch = label[1]*w, label[2]*h, label[3]*w*b, label[4]*h*b
+        mask = cv2.ellipse(mask, ((cx, cy), (cw, ch), 0), (alpha, alpha, alpha), thickness=-1)
+    
+    mask = cv2.GaussianBlur(mask, (51, 51), 0)
+    mask = mask/255.
+    mixed_image = im * (1-mask) + im2 * mask
+    mixed_labels = np.concatenate((labels, labels2), 0)
+
+    if len(segments)>0:
+        segments = np.concatenate((segments, segments2), 0)
+
+    return mixed_image, mixed_labels, segments
+
+
+def multispectral_cutmix(im, labels, im2, labels2, segments=None, segments2=None, p=.5, b=1.2):
+    # assert len(labels)==len(labels2), f'labels: {len(labels)} does not correspond to labels2: {len(labels2)}'
+    if np.random.random()<0.5:
+        im, im2 = im2, im
+        labels, labels2 = labels2, labels
+        segments, segments2 = segments2, segments
+
+    h, w = im.shape[:2]
+
+    # label_indexes = np.random.beta(32.0, 32.0, (len(labels))) < 0.5
+
+    # mask = np.zeros_like(im)
+    # labels2_selected = labels2[label_indexes]
+    # for label in labels2_selected:
+    #     cx, cy, cw, ch = label[1]*w, label[2]*h, label[3]*w*b, label[4]*h*b
+    #     mask = cv2.ellipse(mask, ((cx, cy), (cw, ch), 0), (255, 255, 255), thickness=-1)
+    # mask = mask/255.
+    # mixed_image = im * (1-mask) + im2 * mask
+    # mixed_labels = np.concatenate((labels[~label_indexes], labels2[label_indexes]), 0)
+
+    # if len(segments)>0:
+    #     segments = np.concatenate((segments[~label_indexes], segments2[label_indexes]), 0)
+
+    # return mixed_image, mixed_labels, segments
+
+    # return im, labels, segments
+
+    mixed_labels = labels
+    segments = segments
+    next_labels = []
+    next_segments = []
+
+    mask = np.zeros_like(im)
+    for i, label in enumerate(labels2):
+        if np.random.random() > p:
+            continue
+
+        if len(mixed_labels) > 0:
+            ious = bbox_ioa(label[1:], mixed_labels[:, 1:])
+            indexes = ious < 0.6
+
+            mixed_labels = mixed_labels[indexes]
+            next_labels.append(label)
+        else:
+            next_labels.append(label)
+        
+        if segments is not None and len(segments)>0:
+            save_indexes = []
+            for ind, ind_val in enumerate(indexes):
+                if ind_val:
+                    save_indexes.append(ind)
+            n_segments = []
+            for ind in save_indexes:
+                n_segments = segments[ind]
+            segments = n_segments
+            next_segments.append(segments2[i])
+        
+        b = b * np.random.beta(32.0, 32.0)
+        cx, cy, cw, ch = label[1]*w, label[2]*h, label[3]*w*b, label[4]*h*b
+        mask = cv2.ellipse(mask, ((cx, cy), (cw, ch), 0), (255., 255., 255.), thickness=-1)
+    
+    mask = cv2.GaussianBlur(mask, (51, 51), 0)
+    mask = mask/255.
+    mixed_image = im * (1-mask) + im2 * mask
+
+    mixed_image = mixed_image.astype(np.uint8)
+
+    if len(next_labels)>0:
+        next_labels = np.stack(next_labels, axis=0)
+        mixed_labels = np.concatenate((next_labels, mixed_labels), axis=0)
+
+    if len(next_segments) > 0:
+        if segments is not None:
+            segments.extend(next_segments)
+        else:
+            segments = next_segments
+
+    return mixed_image, mixed_labels, segments
+
+def multispectral_copy_paste(im, labels, segments, im2, labels2, segments2, p=0.5, scale_alpha=16.0, translation=True):
+    # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
+    
+    if np.random.random()<0.5:
+        im, im2 = im2, im
+        labels, labels2 = labels2, labels
+        segments, segments2 = segments2, segments
+        
+    n = len(segments2)
+    if p and n:
+        h, w, c = im.shape  # height, width, channels
+        im_result = im.copy()
+        # im_result = np.zeros_like(im)
+        
+        # print(len(labels), len(segments), len(labels2), len(segments2))
+        
+        for j in random.sample(range(n), k=round(p * n)):
+            # l, s = labels2[j], segments2[j]
+            l = labels2[j]
+            s = segments2[j]
+
+
+            cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
+            
+            if (bw < 4) or (bh < 4):
+                continue
+
+            # r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
+            scale = np.random.beta(6, 64) * 640 # follows height distribution
+            r = scale / bh
+            
+            
+            # if (bw < 1e-8) or (bh < 1e-8):
+            if (scale < 4) or (scale*bw/bh < 4) or (r < 0.2) or (r > 2):
+                continue
+
+            scaled_l = l.copy()
+            scaled_l[1:] = xywh2xyxy(np.array([cx, cy, bw*r, bh*r], dtype=np.float32)[np.newaxis, :]).flatten()
+            
+            t = (np.random.uniform(-scaled_l[1], (w-scaled_l[3])), 
+                np.random.uniform(-scaled_l[2], (h-scaled_l[4]))) if translation is True \
+                else (0, 0)
+
+            scaled_l[1] += t[0]
+            scaled_l[2] += t[1]
+            scaled_l[3] += t[0]
+            scaled_l[4] += t[1]
+
+            scaled_s = s.copy()
+            scaled_s[:, 0] -= cx
+            scaled_s[:, 0] *= r
+            scaled_s[:, 0] += cx + t[0]
+            scaled_s[:, 1] -= cy
+            scaled_s[:, 1] *= r
+            scaled_s[:, 1] += cy + t[1]
+
+            box = w - scaled_l[3], scaled_l[2], w - scaled_l[1], scaled_l[4]
+            ioa = bbox_ioa(box, labels[:, 1:5])  # intersection over area
+            is_valid = box_candidates(l[1:], scaled_l[1:])
+
+            if (ioa < 0.20).all() and is_valid:  # allow 20% obscuration of existing labels
+
+                im_new = np.zeros(im.shape, np.uint8)
+                im_source = im2.copy()
+                cv2.drawContours(im_new, [s.astype(np.int32)], -1, (255, 255, 255), cv2.FILLED)
+                im_roi = cv2.bitwise_and(src1=im_source, src2=im_new)
+                im_roi = cv2.flip(im_roi, 1)
+
+                # Center
+                C = np.eye(3)
+                C[0, 2] = -(w-cx)
+                C[1, 2] = -cy
+
+                # Rotation and Scale
+                R = np.eye(3)
+                a = 0 # random.uniform(-degrees, degrees)
+                # a += random.choice([-180, -90, 0, 90])  # add 90deg rotations to small rotations
+                R[:2] = cv2.getRotationMatrix2D(angle=a, center=(0, 0), scale=r)
+
+                # Translation
+                T = np.eye(3)
+                T[0, 2] = (w-cx) - t[0]
+                T[1, 2] = cy + t[1]
+                # Combined rotation matrix
+                M = T @ R @ C  # order of operations (right to left) is IMPORTANT
+                im_roi = cv2.warpAffine(im_roi, M[:2], dsize=(w, h))
+
+                i = im_roi > 0
+                im_result[i] = im_roi[i]
+
+            
+                labels = np.concatenate((labels, [[l[0], *box]]), 0)
+                segments.append(np.concatenate((w - scaled_s[:, 0:1], scaled_s[:, 1:2]), 1))
+
+    return im_result, labels, segments
 
 def mixup(im, labels, im2, labels2):
     # Applies MixUp augmentation https://arxiv.org/pdf/1710.09412.pdf

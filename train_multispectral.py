@@ -45,7 +45,7 @@ from models.yolo import Model
 from utils.autoanchor import check_anchors
 from utils.autobatch import check_train_batch_size
 from utils.callbacks import Callbacks
-from utils.dataloaders import create_dataloader
+from utils.dataloaders import create_dataloader, create_dataloader_rgb_ir
 from utils.downloads import attempt_download, is_url
 from utils.general import (LOGGER, check_amp, check_dataset, check_file, check_git_status, check_img_size,
                            check_requirements, check_suffix, check_yaml, colorstr, get_latest_run, increment_path,
@@ -110,10 +110,11 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
     init_seeds(opt.seed + 1 + RANK, deterministic=True)
     with torch_distributed_zero_first(LOCAL_RANK):
         data_dict = data_dict or check_dataset(data)  # check if None
-    train_path, val_path = data_dict['train'], data_dict['val']
+    train_path_rgb, val_path_rgb = Path(data_dict['path']) / data_dict['train_rgb'], Path(data_dict['path']) / data_dict['val_rgb']
+    train_path_ir, val_path_ir = Path(data_dict['path']) /  data_dict['train_ir'], Path(data_dict['path']) / data_dict['val_ir']
     nc = 1 if single_cls else int(data_dict['nc'])  # number of classes
     names = {0: 'item'} if single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-    is_coco = isinstance(val_path, str) and val_path.endswith('coco/val2017.txt')  # COCO dataset
+    is_coco = isinstance(val_path_rgb, str) and val_path_rgb.endswith('coco/val2017.txt')  # COCO dataset
 
     # Model
     check_suffix(weights, '.pt')  # check weights
@@ -185,28 +186,41 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         LOGGER.info('Using SyncBatchNorm()')
 
     # Trainloader
-    train_loader, dataset = create_dataloader(train_path,
-                                              imgsz,
-                                              batch_size // WORLD_SIZE,
-                                              gs,
-                                              single_cls,
-                                              hyp=hyp,
-                                              augment=True,
-                                              cache=None if opt.cache == 'val' else opt.cache,
-                                              rect=opt.rect,
-                                              rank=LOCAL_RANK,
-                                              workers=workers,
-                                              image_weights=opt.image_weights,
-                                              quad=opt.quad,
-                                              prefix=colorstr('train: '),
-                                              shuffle=True)
+    train_loader, dataset = create_dataloader_rgb_ir(train_path_rgb,
+                                                    train_path_ir,
+                                                    imgsz,
+                                                    batch_size // WORLD_SIZE,
+                                                    gs,
+                                                    single_cls,
+                                                    hyp=hyp,
+                                                    augment=True,
+                                                    cache=None if opt.cache == 'val' else opt.cache,
+                                                    rect=opt.rect,
+                                                    rank=LOCAL_RANK,
+                                                    workers=workers,
+                                                    image_weights=opt.image_weights,
+                                                    quad=opt.quad,
+                                                    prefix=colorstr('train: '),
+                                                    shuffle=True)
     labels = np.concatenate(dataset.labels, 0)
     mlc = int(labels[:, 0].max())  # max label class
     assert mlc < nc, f'Label class {mlc} exceeds nc={nc} in {data}. Possible class labels are 0-{nc - 1}'
 
     # Process 0
     if RANK in {-1, 0}:
-        val_loader = create_dataloader(val_path,
+        val_loader_rgb = create_dataloader(val_path_rgb,
+                                       imgsz,
+                                       batch_size // WORLD_SIZE * 2,
+                                       gs,
+                                       single_cls,
+                                       hyp=hyp,
+                                       cache=None if noval else opt.cache,
+                                       rect=True,
+                                       rank=-1,
+                                       workers=workers * 2,
+                                       pad=0.5,
+                                       prefix=colorstr('val: '))[0]
+        val_loader_ir = create_dataloader(val_path_ir,
                                        imgsz,
                                        batch_size // WORLD_SIZE * 2,
                                        gs,
@@ -348,18 +362,36 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = (epoch + 1 == epochs) or stopper.possible_stop
             if not noval or final_epoch:  # Calculate mAP
-                results, maps, _ = validate.run(data_dict,
+                results_rgb, maps_rgb, _ = validate.run(data_dict,
                                                 batch_size=batch_size // WORLD_SIZE * 2,
                                                 imgsz=imgsz,
                                                 half=amp,
                                                 model=ema.ema,
                                                 single_cls=single_cls,
-                                                dataloader=val_loader,
+                                                dataloader=val_loader_rgb,
+                                                phase='rgb',
                                                 save_dir=save_dir,
                                                 plots=False,
                                                 callbacks=callbacks,
                                                 compute_loss=compute_loss,
                                                 person_only=person_only)
+
+                results_ir, maps_ir, _ = validate.run(data_dict,
+                                                batch_size=batch_size // WORLD_SIZE * 2,
+                                                imgsz=imgsz,
+                                                half=amp,
+                                                model=ema.ema,
+                                                single_cls=single_cls,
+                                                dataloader=val_loader_ir,
+                                                phase='ir',
+                                                save_dir=save_dir,
+                                                plots=False,
+                                                callbacks=callbacks,
+                                                compute_loss=compute_loss,
+                                                person_only=person_only)
+
+                results = [(r1+r2)/2 for r1, r2 in zip(results_rgb, results_ir)]
+                maps = (maps_rgb + maps_ir)/2
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -408,14 +440,14 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 strip_optimizer(f)  # strip optimizers
                 if f is best:
                     LOGGER.info(f'\nValidating {f}...')
-                    results, _, _ = validate.run(
+                    results_rgb, _, _ = validate.run(
                         data_dict,
                         batch_size=batch_size // WORLD_SIZE * 2,
                         imgsz=imgsz,
                         model=attempt_load(f, device).half(),
                         iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65
                         single_cls=single_cls,
-                        dataloader=val_loader,
+                        dataloader=val_loader_rgb,
                         save_dir=save_dir,
                         save_json=is_coco,
                         verbose=True,
@@ -423,6 +455,25 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                         callbacks=callbacks,
                         compute_loss=compute_loss,  # val best model with plots
                         person_only=person_only)
+
+                    results_ir, _, _ = validate.run(
+                        data_dict,
+                        batch_size=batch_size // WORLD_SIZE * 2,
+                        imgsz=imgsz,
+                        model=attempt_load(f, device).half(),
+                        iou_thres=0.65 if is_coco else 0.60,  # best pycocotools at iou 0.65
+                        single_cls=single_cls,
+                        dataloader=val_loader_ir,
+                        save_dir=save_dir,
+                        save_json=is_coco,
+                        verbose=True,
+                        plots=plots,
+                        callbacks=callbacks,
+                        compute_loss=compute_loss,  # val best model with plots
+                        person_only=person_only)
+                    
+                    results = [(r1+r2)/2 for r1, r2 in zip(results_rgb, results_ir)]
+
                     if is_coco:
                         callbacks.run('on_fit_epoch_end', list(mloss) + list(results) + lr, epoch, best_fitness, fi)
 
