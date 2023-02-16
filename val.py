@@ -22,6 +22,7 @@ Usage - formats:
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,9 +39,9 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 from models.common import DetectMultiBackend
 from utils.callbacks import Callbacks
 from utils.dataloaders import create_dataloader
-from utils.general import (LOGGER, Profile, check_dataset, check_img_size, check_requirements, check_yaml,
-                           coco80_to_coco91_class, colorstr, increment_path, non_max_suppression, print_args,
-                           scale_boxes, xywh2xyxy, xyxy2xywh)
+from utils.general import (LOGGER, TQDM_BAR_FORMAT, Profile, check_dataset, check_img_size, check_requirements,
+                           check_yaml, coco80_to_coco91_class, colorstr, increment_path, non_max_suppression,
+                           print_args, scale_boxes, xywh2xyxy, xyxy2xywh)
 from utils.metrics import ConfusionMatrix, ap_per_class, box_iou
 from utils.plots import output_to_target, plot_images, plot_val_study
 from utils.torch_utils import select_device, smart_inference_mode
@@ -235,7 +236,7 @@ def run(
     if 'kaist-rgbt' in dataset_name:
         jdict_server = []
     callbacks.run('on_val_start')
-    pbar = tqdm(dataloader, desc=s, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
+    pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
         callbacks.run('on_val_batch_start')
         with dt[0]:
@@ -358,6 +359,7 @@ def run(
     # Save JSON
     if save_json and len(jdict):
         w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
+<<<<<<< HEAD
         
         coco_path = Path(data.get('path', '../coco'))
         
@@ -371,6 +373,10 @@ def run(
                     else str(coco_path / data.get(f'{task}_anno_json'))
 
         pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
+=======
+        anno_json = str(Path('../datasets/coco/annotations/instances_val2017.json'))  # annotations
+        pred_json = str(save_dir / f"{w}_predictions.json")  # predictions
+>>>>>>> e4d836080f68dd14ae9becaa7b50c510ac1db54f
         LOGGER.info(f'\nEvaluating pycocotools mAP... saving {pred_json}...')
         with open(pred_json, 'w') as f:
             json.dump(jdict, f)
@@ -383,9 +389,14 @@ def run(
                 json.dump(jdict_server_sort, f)
 
         try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+<<<<<<< HEAD
             check_requirements('pycocotools')
             # from pycocotools.coco import COCO
             from utils.cocoapi.pycocotools.coco import COCO
+=======
+            check_requirements('pycocotools>=2.0.6')
+            from pycocotools.coco import COCO
+>>>>>>> e4d836080f68dd14ae9becaa7b50c510ac1db54f
             from pycocotools.cocoeval import COCOeval
             if eval_tod:
                 from utils.cocoapi.pycocotools.cocoeval_tod import COCOevalTOD as COCOeval
@@ -486,7 +497,7 @@ def main(opt):
 
     else:
         weights = opt.weights if isinstance(opt.weights, list) else [opt.weights]
-        opt.half = True  # FP16 for fastest results
+        opt.half = torch.cuda.is_available() and opt.device != 'cpu'  # FP16 for fastest results
         if opt.task == 'speed':  # speed benchmarks
             # python val.py --task speed --data coco.yaml --batch 1 --weights yolov5n.pt yolov5s.pt...
             opt.conf_thres, opt.iou_thres, opt.save_json = 0.25, 0.45, False
@@ -503,8 +514,10 @@ def main(opt):
                     r, _, t = run(**vars(opt), plots=False)
                     y.append(r + t)  # results and times
                 np.savetxt(f, y, fmt='%10.4g')  # save
-            os.system('zip -r study.zip study_*.txt')
+            subprocess.run(['zip', '-r', 'study.zip', 'study_*.txt'])
             plot_val_study(x=x)  # plot
+        else:
+            raise NotImplementedError(f'--task {opt.task} not in ("train", "val", "test", "speed", "study")')
 
 
 if __name__ == "__main__":
