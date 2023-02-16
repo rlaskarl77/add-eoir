@@ -30,6 +30,7 @@ data/images/*
 !data/*.yaml
 !data/hyps
 !data/scripts
+!data/multispectral
 !data/images
 !data/images/zidane.jpg
 !data/images/bus.jpg
