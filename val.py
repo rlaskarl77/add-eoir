@@ -365,7 +365,9 @@ def run(
         if is_coco:
             anno_json = str(coco_path / 'annotations/instances_val2017.json')  # annotations json
         elif 'kaist-rgbt' in dataset_name:
-            anno_json = str(Path(data.get('path')) / Path(data.get(f'{task}_anno_json')))
+            anno_json = str(coco_path / data.get(f'{task}_anno_json_rgb')) if phase=='rgb' \
+                    else str(coco_path / data.get(f'{task}_anno_json_ir')) if phase=='ir' \
+                    else str(coco_path / data.get(f'{task}_anno_json'))
         elif 'ADD' in dataset_name:            
             anno_json = str(coco_path / data.get(f'{task}_anno_json_rgb')) if phase=='rgb' \
                     else str(coco_path / data.get(f'{task}_anno_json_ir')) if phase=='ir' \
