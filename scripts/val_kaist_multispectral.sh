@@ -1,5 +1,4 @@
-EXPERIMENTS=('multispectral_copypaste@0.5_ellipse_200epochs3'
-'multispectral_copypaste@0.5_ellipse_200epochs4')
+EXPERIMENTS=('multispectral_copypaste@0.5_ellipse_200epochs4')
 PROJECT="/131_data/namgi/add_eoir/checkpoints/kaist"
 for exp in "${EXPERIMENTS[@]}"
 do
@@ -12,7 +11,7 @@ do
                 --device 0,1,2,3 \
                 --data data/kaist-rgbt-${phase}.yaml \
                 --weights /131_data/namgi/add_eoir/checkpoints/kaist/${exp}/weights/best.pt \
-                --batch-size 64 \
+                --batch-size 128 \
                 --task ${task} \
                 --save-json \
                 --save-txt \
