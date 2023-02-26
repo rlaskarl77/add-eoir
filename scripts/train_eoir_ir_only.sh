@@ -10,5 +10,5 @@ python -um torch.distributed.run --nproc_per_node 4 train.py \
     --epochs $EPOCH \
     --entity cvlab_detection \
     --project /131_data/namgi/add_eoir/checkpoints/mixup \
-    --name v2.1_IR_bs64_mixup@0.5_${EPOCH}epoch \
-    > /131_data/namgi/add_eoir/logs/train_v2.1_IR_bs64_mixup@0.5_${EPOCH}epoch.log 2>&1
+    --name v2.1_IR_bs64_mixup@1.0_${EPOCH}epoch \
+    > /131_data/namgi/add_eoir/logs/train_v2.1_IR_bs64_mixup@1.0_${EPOCH}epoch.log 2>&1
