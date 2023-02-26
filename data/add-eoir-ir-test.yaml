@@ -5,10 +5,10 @@
 dataset_name: ADD-EOIR-IR
 path: /131_data/datasets/add_eoir/v2.1_230220  # dataset root dir
 train: train_IR.txt # train images (relative to 'path')
-val: test_IR.txt  # val images (relative to 'path')
+val: val_IR.txt  # val images (relative to 'path')
 test: test_IR.txt
 
-val_anno_json: annotations/annotations_test_IR.json
+val_anno_json: annotations/annotations_val_IR.json
 test_anno_json: annotations/annotations_test_IR.json
 
 # Classes
