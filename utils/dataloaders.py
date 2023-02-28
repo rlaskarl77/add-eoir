@@ -126,59 +126,6 @@ def create_dataloader(path,
         LOGGER.warning('WARNING ⚠️ --rect is incompatible with DataLoader shuffle, setting shuffle=False')
         shuffle = False
     with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
-        dataset = LoadADDEOIRImagesAndLabels(
-            path,
-            imgsz,
-            batch_size,
-            augment=augment,  # augmentation
-            hyp=hyp,  # hyperparameters
-            rect=rect,  # rectangular batches
-            cache_images=cache,
-            single_cls=single_cls,
-            stride=int(stride),
-            pad=pad,
-            image_weights=image_weights,
-            prefix=prefix)
-
-    batch_size = min(batch_size, len(dataset))
-    nd = torch.cuda.device_count()  # number of CUDA devices
-    nw = min([os.cpu_count() // max(nd, 1), batch_size if batch_size > 1 else 0, workers])  # number of workers
-    sampler = None if rank == -1 else distributed.DistributedSampler(dataset, shuffle=shuffle)
-    loader = DataLoader if image_weights else InfiniteDataLoader  # only DataLoader allows for attribute updates
-    generator = torch.Generator()
-    generator.manual_seed(6148914691236517205 + seed + RANK)
-    return loader(dataset,
-                  batch_size=batch_size,
-                  shuffle=shuffle and sampler is None,
-                  num_workers=nw,
-                  sampler=sampler,
-                  pin_memory=PIN_MEMORY,
-                  collate_fn=LoadADDEOIRImagesAndLabels.collate_fn4 if quad else LoadADDEOIRImagesAndLabels.collate_fn,
-                  worker_init_fn=seed_worker,
-                  generator=generator), dataset
-
-
-def create_dataloader_add_eoir(path,
-                      imgsz,
-                      batch_size,
-                      stride,
-                      single_cls=False,
-                      hyp=None,
-                      augment=False,
-                      cache=False,
-                      pad=0.0,
-                      rect=False,
-                      rank=-1,
-                      workers=8,
-                      image_weights=False,
-                      quad=False,
-                      prefix='',
-                      shuffle=False,
-                      seed=0):
-    if rect and shuffle:
-        LOGGER.warning('WARNING ⚠️ --rect is incompatible with DataLoader shuffle, setting shuffle=False')
-        shuffle = False
-    with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
         dataset = LoadImagesAndLabels(
             path,
             imgsz,
@@ -207,6 +154,59 @@ def create_dataloader_add_eoir(path,
                   sampler=sampler,
                   pin_memory=PIN_MEMORY,
                   collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn,
+                  worker_init_fn=seed_worker,
+                  generator=generator), dataset
+
+
+def create_dataloader_add_eoir(path,
+                      imgsz,
+                      batch_size,
+                      stride,
+                      single_cls=False,
+                      hyp=None,
+                      augment=False,
+                      cache=False,
+                      pad=0.0,
+                      rect=False,
+                      rank=-1,
+                      workers=8,
+                      image_weights=False,
+                      quad=False,
+                      prefix='',
+                      shuffle=False,
+                      seed=0):
+    if rect and shuffle:
+        LOGGER.warning('WARNING ⚠️ --rect is incompatible with DataLoader shuffle, setting shuffle=False')
+        shuffle = False
+    with torch_distributed_zero_first(rank):  # init dataset *.cache only once if DDP
+        dataset = LoadADDEOIRImagesAndLabels(
+            path,
+            imgsz,
+            batch_size,
+            augment=augment,  # augmentation
+            hyp=hyp,  # hyperparameters
+            rect=rect,  # rectangular batches
+            cache_images=cache,
+            single_cls=single_cls,
+            stride=int(stride),
+            pad=pad,
+            image_weights=image_weights,
+            prefix=prefix)
+
+    batch_size = min(batch_size, len(dataset))
+    nd = torch.cuda.device_count()  # number of CUDA devices
+    nw = min([os.cpu_count() // max(nd, 1), batch_size if batch_size > 1 else 0, workers])  # number of workers
+    sampler = None if rank == -1 else distributed.DistributedSampler(dataset, shuffle=shuffle)
+    loader = DataLoader if image_weights else InfiniteDataLoader  # only DataLoader allows for attribute updates
+    generator = torch.Generator()
+    generator.manual_seed(6148914691236517205 + seed + RANK)
+    return loader(dataset,
+                  batch_size=batch_size,
+                  shuffle=shuffle and sampler is None,
+                  num_workers=nw,
+                  sampler=sampler,
+                  pin_memory=PIN_MEMORY,
+                  collate_fn=LoadADDEOIRImagesAndLabels.collate_fn4 if quad else LoadADDEOIRImagesAndLabels.collate_fn,
                   worker_init_fn=seed_worker,
                   generator=generator), dataset
     
@@ -653,12 +653,13 @@ class LoadImagesAndLabels(Dataset):
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
-        try:
-            cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
-            assert cache['version'] == self.cache_version  # matches current version
-            assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
-        except Exception:
-            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
+        # try:
+        #     cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
+        #     assert cache['version'] == self.cache_version  # matches current version
+        #     assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
+        # except Exception:
+        #     cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
+        cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
@@ -1146,7 +1147,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
 
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
-        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.copy.cache')
+        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # matches current version

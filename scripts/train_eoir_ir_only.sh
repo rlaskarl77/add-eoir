@@ -7,6 +7,7 @@ python -um torch.distributed.run --nproc_per_node 4 train.py \
     --batch-size 64 \
     --person-only \
     --exist-ok \
+    --workers 24 \
     --epochs $EPOCH \
     --entity cvlab_detection \
     --project /131_data/namgi/add_eoir/checkpoints/mixup \

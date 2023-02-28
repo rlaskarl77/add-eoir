@@ -328,10 +328,10 @@ def copy_paste_with_size_variant(im, labels, segments, p=0.5):
 
 def copy_paste_with_size_and_position_variant(im, labels, segments, p=0.5, scale_alpha=16.0, translation=True):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
+    im_result = im.copy()
     n = len(segments)
     if p and n:
         h, w, c = im.shape  # height, width, channels
-        im_result = im.copy()
         # im_result = np.zeros_like(im)
         for j in random.sample(range(n), k=round(p * n)):
             l, s = labels[j], segments[j]
