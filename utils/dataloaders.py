@@ -28,8 +28,8 @@ from PIL import ExifTags, Image, ImageOps
 from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
 
-from utils.augmentations import (Albumentations, augment_hsv, classify_albumentations, classify_transforms, copy_paste, copy_paste_with_size_and_position_variant, copy_paste_with_size_variant,
-                                 cutout, letterbox, mixup, multispectral_box_paste, multispectral_box_paste_add_eoir, multispectral_copy_paste, multispectral_cutmix, multispectral_mixup, multispectral_random, random_perspective)
+from utils.augmentations import (Albumentations, augment_hsv, classify_albumentations, classify_transforms, copy_paste, copy_paste_with_size_and_position_variant, copy_paste_with_size_and_position_variant_add_eoir, copy_paste_with_size_variant,
+                                 cutout, letterbox, mixup, multispectral_box_mix, multispectral_box_mix_rounded, multispectral_box_paste, multispectral_box_paste_add_eoir, multispectral_copy_paste, multispectral_cutmix, multispectral_mixup, multispectral_random, random_perspective)
 from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, check_requirements, check_yaml, clean_str,
                            cv2, is_colab, is_kaggle, segments2boxes, unzip_file, xyn2xy, xywh2xyxy, xywhn2xyxy,
                            xyxy2xywhn)
@@ -653,13 +653,12 @@ class LoadImagesAndLabels(Dataset):
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
-        # try:
-        #     cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
-        #     assert cache['version'] == self.cache_version  # matches current version
-        #     assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
-        # except Exception:
-        #     cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
-        cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
+        try:
+            cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
+            assert cache['version'] == self.cache_version  # matches current version
+            assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
+        except Exception:
+            cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
@@ -1456,7 +1455,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
         # img4, labels4 = replicate(img4, labels4)  # replicate
 
         # Augment
-        img4, labels4, segments4 = copy_paste_with_size_and_position_variant(
+        img4, labels4, segments4 = copy_paste_with_size_and_position_variant_add_eoir(
                                                         img4, 
                                                         labels4, 
                                                         segments4, 
@@ -2091,7 +2090,19 @@ class LoadMultispectralImagesAndLabels(Dataset):
         #                                     segments4, 
         #                                     segments4_ir)
         
-        img4, labels4, segments4 = multispectral_box_paste(
+        # img4, labels4, segments4 = multispectral_box_paste(
+        #                                         img4, 
+        #                                         labels4, 
+        #                                         segments4, 
+        #                                         img4_ir, 
+        #                                         labels4_ir, 
+        #                                         segments4_ir, 
+        #                                         p=self.hyp['copy_paste'],
+        #                                         scale_alpha=self.hyp['copy_paste_scale'],
+        #                                         translation=self.hyp['copy_paste_translation']
+        #                                         )
+        
+        img4, labels4, segments4 = multispectral_box_mix_rounded(
                                                 img4, 
                                                 labels4, 
                                                 segments4, 
