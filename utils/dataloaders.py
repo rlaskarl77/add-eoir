@@ -1337,6 +1337,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
 
             labels = self.labels[index].copy()
             labels = labels[:, [0, 2, 3, 4, 5]]
+            
             if labels.size:  # normalized xywh to pixel xyxy format
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
@@ -1443,7 +1444,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
             # Labels
             labels, segments = self.labels[index].copy(), self.segments[index].copy()
             if labels.size:
-                labels[:, 3:] = xywhn2xyxy(labels[:, 3:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
+                labels[:, 2:] = xywhn2xyxy(labels[:, 2:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
             labels4.append(labels)
             segments4.extend(segments)
@@ -1514,7 +1515,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
             # Labels
             labels, segments = self.labels[index].copy(), self.segments[index].copy()
             if labels.size:
-                labels[:, 3:] = xywhn2xyxy(labels[:, 3:], w, h, padx, pady)  # normalized xywh to pixel xyxy format
+                labels[:, 2:] = xywhn2xyxy(labels[:, 2:], w, h, padx, pady)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padx, pady) for x in segments]
             labels9.append(labels)
             segments9.extend(segments)
@@ -2466,16 +2467,17 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
             labels = self.labels[index].copy()
             labels_ir = self.labels_ir[index].copy()
 
+            labels = labels[:, [0, 2, 3, 4, 5]]
+            labels_ir = labels_ir[:, [0, 2, 3, 4, 5]]
+            
             # img, labels, segments = multispectral_mixup(img, labels, img_ir, labels_ir p=self.hyp['msm'])
             # img, labels, segments = multispectral_cutmix(img, labels, img_ir, labels_ir, p=self.hyp['mcm'])
 
             if labels.size:  # normalized xywh to pixel xyxy format
-                labels[:, 3:] = xywhn2xyxy(labels[:, 3:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
+                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
             if labels_ir.size:  # normalized xywh to pixel xyxy format
-                labels_ir[:, 3:] = xywhn2xyxy(labels_ir[:, 3:], ratio_ir[0] * w, ratio_ir[1] * h, padw=pad_ir[0], padh=pad_ir[1])
+                labels_ir[:, 1:] = xywhn2xyxy(labels_ir[:, 1:], ratio_ir[0] * w, ratio_ir[1] * h, padw=pad_ir[0], padh=pad_ir[1])
             
-            labels = labels[:, [0, 2, 3, 4, 5]]
-            labels_ir = labels_ir[:, [0, 2, 3, 4, 5]]
 
             if self.augment:
                 img, labels = random_perspective(img,
@@ -2609,10 +2611,10 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
 
             # Labels
             if labels.size:
-                labels[:, 3:] = xywhn2xyxy(labels[:, 3:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
+                labels[:, 2:] = xywhn2xyxy(labels[:, 2:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
             if labels_ir.size:
-                labels_ir[:, 3:] = xywhn2xyxy(labels_ir[:, 3:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
+                labels_ir[:, 2:] = xywhn2xyxy(labels_ir[:, 2:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments_ir = [xyn2xy(x, w, h, padw, padh) for x in segments_ir]
             labels4.append(labels)
             segments4.extend(segments)
@@ -2622,9 +2624,9 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         # Concat/clip labels
         labels4 = np.concatenate(labels4, 0)
         labels4_ir = np.concatenate(labels4_ir, 0)
-        for x in (labels4[:, 3:], *segments4):
+        for x in (labels4[:, 2:], *segments4):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
-        for x in (labels4_ir[:, 3:], *segments4_ir):
+        for x in (labels4_ir[:, 2:], *segments4_ir):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
         # img4, labels4 = replicate(img4, labels4)  # replicate
 
@@ -2867,16 +2869,20 @@ def verify_image_label_add_eoir(args):
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
                 if any(len(x) > 6 for x in lb):  # is segment
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
-                    iscrowds = np.array([x[1] for x in lb], dtype=np.float32)
-                    occlusions = np.array([x[2] for x in lb], dtype=np.float32)
-                    segments = [np.array(x[3:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
-                    lb = np.concatenate((classes.reshape(-1, 1), iscrowds.reshape(-1, 1), occlusions.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
+                    # iscrowds = np.array([x[1] for x in lb], dtype=np.float32)
+                    occlusions = np.array([x[1] for x in lb], dtype=np.float32)
+                    # segments = [np.array(x[3:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
+                    segments = [np.array(x[2:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
+                    # lb = np.concatenate((classes.reshape(-1, 1), iscrowds.reshape(-1, 1), occlusions.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
+                    lb = np.concatenate((classes.reshape(-1, 1), occlusions.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
             nl = len(lb)
             if nl:
-                assert lb.shape[1] == 7, f'labels require 7 columns, {lb.shape[1]} columns detected'
+                # assert lb.shape[1] == 7, f'labels require 7 columns, {lb.shape[1]} columns detected'
+                assert lb.shape[1] == 6, f'labels require 7 columns, {lb.shape[1]} columns detected'
                 assert (lb >= 0).all(), f'negative label values {lb[lb < 0]}'
-                assert (lb[:, 3:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 3:][lb[:, 3:] > 1]}'
+                # assert (lb[:, 3:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 3:][lb[:, 3:] > 1]}'
+                assert (lb[:, 2:] <= 1).all(), f'non-normalized or out of bounds coordinates {lb[:, 2:][lb[:, 2:] > 1]}'
                 _, i = np.unique(lb, axis=0, return_index=True)
                 if len(i) < nl:  # duplicate row check
                     lb = lb[i]  # remove duplicates
@@ -2885,10 +2891,12 @@ def verify_image_label_add_eoir(args):
                     msg = f'{prefix}WARNING ⚠️ {im_file}: {nl - len(i)} duplicate labels removed'
             else:
                 ne = 1  # label empty
-                lb = np.zeros((0, 7), dtype=np.float32)
+                # lb = np.zeros((0, 7), dtype=np.float32)
+                lb = np.zeros((0, 6), dtype=np.float32)
         else:
             nm = 1  # label missing
-            lb = np.zeros((0, 7), dtype=np.float32)
+            # lb = np.zeros((0, 7), dtype=np.float32)
+            lb = np.zeros((0, 6), dtype=np.float32)
         return im_file, lb, shape, segments, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1

@@ -46,6 +46,7 @@ vis_min_test_eo/
 vis_min_test_ir/
 vis_min_val_eo/
 vis_min_val_ir/
+mixup/**/*
 logs/
 
 results*.csv

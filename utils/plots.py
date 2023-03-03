@@ -387,6 +387,8 @@ def plot_val_study(file='', dir='', x=None):  # from utils.plots import *; plot_
 def plot_labels(labels, names=(), save_dir=Path('')):
     # plot dataset labels
     LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
+    if labels.shape[-1] != 4:
+        labels = labels[:, [0, 2, 3, 4, 5]]
     c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
     nc = int(c.max() + 1)  # number of classes
     x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])

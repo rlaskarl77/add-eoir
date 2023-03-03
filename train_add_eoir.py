@@ -43,7 +43,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 import val as validate  # for end-of-epoch mAP
 from models.experimental import attempt_load
 from models.yolo import Model
-from utils.autoanchor import check_anchors
+from utils.autoanchor import check_anchors_add_eoir as check_anchors
 from utils.autobatch import check_train_batch_size
 from utils.callbacks import Callbacks
 from utils.dataloaders import create_dataloader_add_eoir as create_dataloader
