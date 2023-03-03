@@ -1336,7 +1336,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
-            labels = labels[0, 3:]
+            labels = labels[:, [0, 2, 3, 4, 5]]
             if labels.size:  # normalized xywh to pixel xyxy format
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
 
@@ -2474,8 +2474,8 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
             if labels_ir.size:  # normalized xywh to pixel xyxy format
                 labels_ir[:, 3:] = xywhn2xyxy(labels_ir[:, 3:], ratio_ir[0] * w, ratio_ir[1] * h, padw=pad_ir[0], padh=pad_ir[1])
             
-            labels = labels[:, [0, 3, 4, 5, 6]]
-            labels_ir = labels_ir[:, [0, 3, 4, 5, 6]]
+            labels = labels[:, [0, 2, 3, 4, 5]]
+            labels_ir = labels_ir[:, [0, 2, 3, 4, 5]]
 
             if self.augment:
                 img, labels = random_perspective(img,

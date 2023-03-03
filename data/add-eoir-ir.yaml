@@ -1,10 +1,15 @@
 # YOLOv5 🚀 by Ultralytics, GPL-3.0 license
-# LWIR dataset
+# ADD EO/IR dataset
 
 # Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
-path: /data/namgi/add_eoir/v2.0_20220607  # dataset root dir
-train: train_IR(White).txt # train images (relative to 'path')
-val: val_IR(White).txt  # val images (relative to 'path')
+dataset_name: ADD-EOIR-IR
+path: /home/namgi/datasets/add_eoir  # dataset root dir
+train: train_IR.txt # train images (relative to 'path')
+val: val_IR.txt  # val images (relative to 'path')
+test: test_IR.txt
+
+val_anno_json: annotations/annotations_val_IR.json
+test_anno_json: annotations/annotations_test_IR.json
 
 # Classes
 names:

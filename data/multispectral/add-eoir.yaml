@@ -1,0 +1,28 @@
+# YOLOv5 🚀 by Ultralytics, GPL-3.0 license
+# ADD EO/IR dataset
+
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+dataset_name: ADD-EOIR-IR
+path: /home/namgi/datasets/add_eoir  # dataset root dir
+
+train_rgb: train_EO_multispectral.txt # train images (relative to 'path')
+val_rgb: val_EO_multispectral.txt  # val images (relative to 'path')
+test_rgb: test_EO_multispectral.txt
+
+train_ir: train_IR_multispectral.txt # train images (relative to 'path')
+val_ir: val_IR_multispectral.txt  # val images (relative to 'path')
+test_ir: test_IR_multispectral.txt
+
+val_anno_json_rgb: annotations/annotations_val_EO.json
+test_anno_json_rgb: annotations/annotations_test_EO.json
+
+val_anno_json_ir: annotations/annotations_val_IR.json
+test_anno_json_ir: annotations/annotations_test_IR.json
+
+train: train_EO_multispectral.txt # train images (relative to 'path')
+val: val_EO_multispectral.txt  # val images (relative to 'path')
+
+# Classes
+names:
+  0: person
+  1: animal

@@ -406,7 +406,7 @@ def copy_paste_with_size_and_position_variant(im, labels, segments, p=0.5, scale
 def copy_paste_with_size_and_position_variant_add_eoir(im, labels, segments, p=0.5, scale_alpha=16.0, translation=True):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
     n = len(segments)
-    labels = labels[:, [0, 3, 4, 5, 6]] # conversion to normal yolo label
+    labels = labels[:, [0, 2, 3, 4, 5]] # conversion to normal yolo label
     if p and n:
         h, w, c = im.shape  # height, width, channels
         im_result = im.copy()
@@ -414,12 +414,11 @@ def copy_paste_with_size_and_position_variant_add_eoir(im, labels, segments, p=0
         for j in random.sample(range(n), k=round(p * n)):
             l, s = labels[j], segments[j]
 
-            iscrowd = bool(l[1])
-            occlusion = bool(l[2])
+            occlusion = bool(l[1])
             
-            l = l[[0, 3, 4, 5, 6]]
+            l = l[[0, 2, 3, 4, 5]]
             
-            if iscrowd or occlusion:
+            if occlusion:
                 continue
 
             r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
@@ -773,7 +772,7 @@ def multispectral_copy_paste_add_eoir(im, labels, segments, im2, labels2, segmen
         labels, labels2 = labels2, labels
         segments, segments2 = segments2, segments
         
-    labels = labels[:, [0, 3, 4, 5, 6]]
+    labels = labels[:, [0, 2, 3, 4, 5]]
         
     n = len(segments2)
     if p and n:
@@ -788,12 +787,11 @@ def multispectral_copy_paste_add_eoir(im, labels, segments, im2, labels2, segmen
             l = labels2[j]
             s = segments2[j]
             
-            iscrowd = bool(l[1])
-            occlusion = bool(l[2])
+            occlusion = bool(l[1])
             
-            l = l[[0, 3, 4, 5, 6]]
+            l = l[[0, 2, 3, 4, 5]]
             
-            if iscrowd or occlusion:
+            if occlusion:
                 continue
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
@@ -975,7 +973,7 @@ def multispectral_box_paste_add_eoir(im, labels, segments, im2, labels2, segment
         labels, labels2 = labels2, labels
         segments, segments2 = segments2, segments
 
-    labels = labels[:, [0, 3, 4, 5, 6]]
+    labels = labels[:, [0, 2, 3, 4, 5]]
 
     n = len(labels2)
     if p and n:
@@ -990,12 +988,11 @@ def multispectral_box_paste_add_eoir(im, labels, segments, im2, labels2, segment
         for j in random.sample(range(n), k=round(p * n)):
             l = labels2[j]
             
-            iscrowd = bool(l[1])
-            occlusion = bool(l[2])
+            occlusion = bool(l[1])
             
-            l = l[[0, 3, 4, 5, 6]]
+            l = l[[0, 2, 3, 4, 5]]
             
-            if iscrowd or occlusion:
+            if occlusion:
                 continue
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
