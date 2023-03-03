@@ -692,7 +692,7 @@ def multispectral_copy_paste(im, labels, segments, im2, labels2, segments2, p=0.
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw < 4) or (bh < 4):
+            if (bw < 10) or (bh < 10):
                 continue
 
             # r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
@@ -796,7 +796,7 @@ def multispectral_copy_paste_add_eoir(im, labels, segments, im2, labels2, segmen
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw < 4) or (bh < 4):
+            if (bw < 10) or (bh < 10):
                 continue
 
             # r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
@@ -805,7 +805,7 @@ def multispectral_copy_paste_add_eoir(im, labels, segments, im2, labels2, segmen
             
             
             # if (bw < 1e-8) or (bh < 1e-8):
-            if (scale < 4) or (scale*bw/bh < 4) or (r < 0.2) or (r > 2):
+            if (scale < 10) or (scale*bw/bh < 10) or (r < 0.5) or (r > 2):
                 continue
 
             scaled_l = l.copy()
@@ -891,14 +891,11 @@ def multispectral_box_paste(im, labels, segments, im2, labels2, segments2, p=0.5
 
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
-            
-            if (bw < 4) or (bh < 4):
-                continue
 
             r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
             
             
-            if (bw*r < 4) or (bh*r < 4):
+            if (bw<10) or (bh<10) or (bw*r < 10) or (bh*r < 10):
                 continue
 
             scaled_l = l.copy()
@@ -997,13 +994,13 @@ def multispectral_box_paste_add_eoir(im, labels, segments, im2, labels2, segment
 
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw < 4) or (bh < 4):
+            if (bw < 10) or (bh < 10):
                 continue
 
             r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
             
             
-            if (bw*r < 4) or (bh*r < 4):
+            if (bw*r < 10) or (bh*r < 10):
                 continue
 
             scaled_l = l.copy()
@@ -1112,7 +1109,7 @@ def multispectral_box_mix(im, labels, segments, im2, labels2, segments2, p=0.5, 
             
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw*r < 4) or (bh*r < 4):
+            if (bw<10) or (bh<10) or (bw*r < 10) or (bh*r < 10):
                 continue
 
             scaled_l = l.copy()
@@ -1204,7 +1201,7 @@ def multispectral_box_mix_rounded(im, labels, segments, im2, labels2, segments2,
             
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw*r < 4) or (bh*r < 4):
+            if (bw<10) or (bh<10) or (bw*r < 10) or (bh*r < 10):
                 continue
 
             scaled_l = l.copy()
@@ -1304,7 +1301,7 @@ def multispectral_box_mix_rounded(im, labels, segments, im2, labels2, segments2,
             
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
             
-            if (bw*r < 4) or (bh*r < 4):
+            if (bw<10) or (bh<10) or (bw*r < 10) or (bh*r < 10):
                 continue
 
             scaled_l = l.copy()
