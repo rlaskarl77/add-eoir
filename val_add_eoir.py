@@ -408,7 +408,7 @@ def run(
             # if eval_tod and dataset_name == 'ADD-EOIR-EO':
             if eval_tod:
                 rng = [0, 16, 32, 96, 1e5]   # criteria on width=640
-                rng = [k / 640 * 1024 for k in rng] # criteria on width=1024
+                rng = [k / 640 * 1024 for k in rng] if imgsz is 1024 else rng # criteria on width=1024
                 eval.params.areaRng = [[rng[i]**2, rng[i+1]**2] for i in range(4)]
                 eval.params.areaRng = [[0 ** 2, 1e5 ** 2]] + eval.params.areaRng
             #######################

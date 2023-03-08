@@ -406,6 +406,8 @@ def copy_paste_with_size_and_position_variant(im, labels, segments, p=0.5, scale
 def copy_paste_with_size_and_position_variant_add_eoir(im, labels, segments, p=0.5, scale_alpha=16.0, translation=True):
     # Implement Copy-Paste augmentation https://arxiv.org/abs/2012.07177, labels as nx5 np.array(cls, xyxy)
     n = len(segments)
+    
+    occlusions = labels[:, 1]
     labels = labels[:, [0, 2, 3, 4, 5]] # conversion to normal yolo label
     if p and n:
         h, w, c = im.shape  # height, width, channels
@@ -414,19 +416,25 @@ def copy_paste_with_size_and_position_variant_add_eoir(im, labels, segments, p=0
         for j in random.sample(range(n), k=round(p * n)):
             l, s = labels[j], segments[j]
 
-            occlusion = bool(l[1])
-            
-            l = l[[0, 2, 3, 4, 5]]
+            occlusion = bool(occlusions[j])
             
             if occlusion:
                 continue
 
-            r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
+
             cx, cy, bw, bh = xyxy2xywh(l[np.newaxis, 1:]).flatten() # center, width and height of box (x, y, w, h)
 
             if (bw < 1e-8) or (bh < 1e-8):
                 continue
+            
+            scale = np.random.beta(2.147575, 18.145773) * 640 # follows height distribution
+            r = scale / bh
+            # r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
 
+            
+            if (scale < 10) or (scale*bw/bh < 10) or (r < 0.5) or (r > 2):
+                continue
+            
             scaled_l = l.copy()
             scaled_l[1:] = xywh2xyxy(np.array([cx, cy, bw*r, bh*r], dtype=np.float32)[np.newaxis, :]).flatten()
             
