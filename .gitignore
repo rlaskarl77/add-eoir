@@ -41,6 +41,7 @@ ADD_augmentation_val/
 ADD_augmentation_val3/
 Multispectral_augmentation/
 copy_paste/
+copy_paste_val/
 test_copy_paste/
 vis_min_test_eo/
 vis_min_test_ir/
