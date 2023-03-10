@@ -7,6 +7,7 @@ python -um torch.distributed.run --nproc_per_node 4 train_multispectral_add_eoir
     --batch-size 128 \
     --person-only \
     --exist-ok \
+    --cache-ram \
     --epochs 100 \
     --entity cvlab_detection \
     --project copy_paste \
