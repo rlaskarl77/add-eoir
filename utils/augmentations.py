@@ -808,7 +808,7 @@ def multispectral_copy_paste_add_eoir(im, labels, segments, im2, labels2, segmen
                 continue
 
             # r = np.random.beta(scale_alpha, scale_alpha) + 0.5 # scale factor with mu=0.5, sigma~=0.25
-            scale = np.random.beta(6, 64) * 640 # follows height distribution
+            scale = np.random.beta(2.147575, 18.145773) * 640 # follows height distribution
             r = scale / bh
             
             
