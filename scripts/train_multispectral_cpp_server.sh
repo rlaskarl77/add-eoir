@@ -7,9 +7,9 @@ python -um torch.distributed.run --nproc_per_node 4 train_multispectral_add_eoir
     --batch-size 128 \
     --person-only \
     --exist-ok \
-    --cache-ram \
-    --epochs 100 \
+    --cache ram \
+    --epochs $EPOCH \
     --entity cvlab_detection \
     --project copy_paste \
     --name v2.1_Multispectral_bs64_midsize_noocclusion_originaldist_copypaste@1.0_${EPOCH}epoch \
-    > /131_data/namgi/add_eoir/logs/train_copy_paste/v2.1_Multispectral_bs64_midsize_noocclusion_originaldist_copypaste@1.0_${EPOCH}epoch 2>&1
+    > /131_data/namgi/add_eoir/logs/copy_paste/v2.1_Multispectral_bs64_midsize_noocclusion_originaldist_copypaste@1.0_${EPOCH}epoch 2>&1
