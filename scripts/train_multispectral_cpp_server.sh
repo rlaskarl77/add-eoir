@@ -7,7 +7,7 @@ python -um torch.distributed.run --nproc_per_node 4 train_multispectral_add_eoir
     --batch-size 128 \
     --person-only \
     --exist-ok \
-    --cache ram \
+    --cache disk \
     --epochs $EPOCH \
     --entity cvlab_detection \
     --project /131_data/namgi/add_eoir/checkpoints/copy_paste \
