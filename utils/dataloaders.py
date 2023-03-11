@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader, Dataset, dataloader, distributed
 from tqdm import tqdm
 
 from utils.augmentations import (Albumentations, augment_hsv, classify_albumentations, classify_transforms, copy_paste, copy_paste_with_size_and_position_variant, copy_paste_with_size_and_position_variant_add_eoir, copy_paste_with_size_variant,
-                                 cutout, letterbox, mixup, multispectral_box_mix, multispectral_box_mix_rounded, multispectral_box_paste, multispectral_box_paste_add_eoir, multispectral_copy_paste, multispectral_cutmix, multispectral_mixup, multispectral_random, random_perspective)
+                                 cutout, letterbox, mixup, multispectral_box_mix, multispectral_box_mix_rounded, multispectral_box_paste, multispectral_box_paste_add_eoir, multispectral_copy_paste, multispectral_copy_paste_add_eoir, multispectral_cutmix, multispectral_mixup, multispectral_random, random_perspective)
 from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, check_requirements, check_yaml, clean_str,
                            cv2, is_colab, is_kaggle, segments2boxes, unzip_file, xyn2xy, xywh2xyxy, xywhn2xyxy,
                            xyxy2xywhn)
@@ -1451,7 +1451,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
 
         # Concat/clip labels
         labels4 = np.concatenate(labels4, 0)
-        for x in (labels4[:, 3:], *segments4):
+        for x in (labels4[:, 2:], *segments4):
             np.clip(x, 0, 2 * s, out=x)  # clip when using random_perspective()
         # img4, labels4 = replicate(img4, labels4)  # replicate
 
@@ -1586,6 +1586,7 @@ class LoadADDEOIRImagesAndLabels(Dataset):
 
         return torch.stack(im4, 0), torch.cat(label4, 0), path4, shapes4
 
+
 class LoadMultispectralImagesAndLabels(Dataset):
     # YOLOv5 train_loader/val_loader, loads images and labels for training and validation
     cache_version = 0.6  # dataset labels *.cache version
@@ -1604,6 +1605,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
                  single_cls=False,
                  stride=32,
                  pad=0.0,
+                 min_items=0,
                  prefix=''):
         self.img_size = img_size
         self.augment = augment
@@ -1627,46 +1629,46 @@ class LoadMultispectralImagesAndLabels(Dataset):
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
-                        f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                        f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
             self.im_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.im_files, f'{prefix}No images found'
         except Exception as e:
-            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}')
+            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
         try:
             f = []  # image files
-            for p in path_ir if isinstance(path_ir, list) else [path_ir]:
-                p = Path(p)  # os-agnostic
+            for p_ir in path_ir if isinstance(path_ir, list) else [path_ir]:
+                p_ir = Path(p_ir)  # os-agnostic
                 if p.is_dir():  # dir
                     f += glob.glob(str(p / '**' / '*.*'), recursive=True)
                     # f = list(p.rglob('*.*'))  # pathlib
-                elif p.is_file():  # file
-                    with open(p) as t:
+                elif p_ir.is_file():  # file
+                    with open(p_ir) as t:
                         t = t.read().strip().splitlines()
-                        parent = str(p.parent) + os.sep
-                        f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                        parent = str(p_ir.parent) + os.sep
+                        f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
             self.im_files_ir = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.im_files_ir, f'{prefix}No images found'
         except Exception as e:
-            raise Exception(f'{prefix}Error loading data from {path_ir}: {e}\n{HELP_URL}')
+            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
         self.label_files_ir = img2label_paths(self.im_files_ir)  # labels
-        cache_path = (Path(self.label_files[0]).parent).with_suffix('.cache')
-        cache_path_ir = (Path(self.label_files_ir[0]).parent).with_suffix('.cache')
+        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        cache_path_ir = (p_ir if p_ir.is_file() else Path(self.label_files_ir[0]).parent).with_suffix('.cache')
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # matches current version
-            assert cache['hash'] == get_hash(self.label_files+ self.im_files)  # identical hash
+            assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
         except Exception:
             cache, exists = self.cache_labels_rgb(cache_path, prefix), False  # run cache ops
         try:
@@ -1679,7 +1681,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in {-1, 0}:
-            d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+            d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache['msgs']:
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
@@ -1688,7 +1690,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
         # Display cache
         nf, nm, ne, nc, n = cache_ir.pop('results')  # found, missing, empty, corrupt, total
         if exists_ir and LOCAL_RANK in {-1, 0}:
-            d = f"Scanning '{cache_path_ir}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+            d = f"Scanning {cache_path_ir}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache_ir['msgs']:
                 LOGGER.info('\n'.join(cache_ir['msgs']))  # display warnings
@@ -1703,7 +1705,19 @@ class LoadMultispectralImagesAndLabels(Dataset):
         self.shapes = np.array(shapes)
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
-        n = len(shapes)  # number of images
+
+        # Filter images
+        if min_items:
+            include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
+            LOGGER.info(f'{prefix}{n - len(include)}/{n} images filtered from dataset')
+            self.im_files = [self.im_files[i] for i in include]
+            self.label_files = [self.label_files[i] for i in include]
+            self.labels = [self.labels[i] for i in include]
+            self.segments = [self.segments[i] for i in include]
+            self.shapes = self.shapes[include]  # wh
+
+        # Create indices
+        n = len(self.shapes)  # number of images
         bi = np.floor(np.arange(n) / batch_size).astype(int)  # batch index
         nb = bi[-1] + 1  # number of batches
         self.batch = bi  # batch index of image
@@ -1712,11 +1726,11 @@ class LoadMultispectralImagesAndLabels(Dataset):
 
         # Read cache
         [cache_ir.pop(k) for k in ('hash', 'version', 'msgs')]  # remove items
-        labels, shapes, self.segments_ir = zip(*cache_ir.values())
-        nl = len(np.concatenate(labels, 0))  # number of labels
+        labels_ir, shapes_ir, self.segments_ir = zip(*cache_ir.values())
+        nl = len(np.concatenate(labels_ir, 0))  # number of labels
         assert nl > 0 or not augment, f'{prefix}All labels empty in {cache_path_ir}, can not start training. {HELP_URL}'
-        self.labels_ir = list(labels)
-        self.shapes_ir = np.array(shapes)
+        self.labels_ir = list(labels_ir)
+        self.shapes_ir = np.array(shapes_ir)
         self.im_files_ir = list(cache_ir.keys())  # update
         self.label_files_ir = img2label_paths(cache_ir.keys())  # update
 
@@ -1759,32 +1773,51 @@ class LoadMultispectralImagesAndLabels(Dataset):
 
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride
 
-        # Cache images into RAM/disk for faster training (WARNING: large datasets may exceed system resources)
+        # Cache images into RAM/disk for faster training
+        if cache_images == 'ram' and not self.check_cache_ram(prefix=prefix):
+            cache_images = False
         self.ims = [None] * n
         self.ims_ir = [None] * n
         self.npy_files = [Path(f).with_suffix('.npy') for f in self.im_files]
         self.npy_files_ir = [Path(f).with_suffix('.npy') for f in self.im_files_ir]
         if cache_images:
-            gb = 0  # Gigabytes of cached images
+            b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
             fcn = self.cache_images_to_disk_rgb_ir if cache_images == 'disk' else self.load_image_rgb_ir
             results = ThreadPool(NUM_THREADS).imap(fcn, range(n))
             pbar = tqdm(enumerate(results), total=n, bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
             for i, x in pbar:
                 if cache_images == 'disk':
-                    gb += self.npy_files[i].stat().st_size
+                    b += self.npy_files[i].stat().st_size
                 else:  # 'ram'
                     self.ims[i], self.ims_ir[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                    gb += self.ims[i].nbytes
-                    gb += self.ims_ir[i].nbytes
-                pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB {cache_images})'
+                    b += self.ims[i].nbytes
+                    b += self.ims_ir[i].nbytes
+                pbar.desc = f'{prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
+
+    def check_cache_ram(self, safety_margin=0.1, prefix=''):
+        # Check image caching requirements vs available memory
+        b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
+        n = min(self.n, 30)  # extrapolate from 30 random images
+        for _ in range(n):
+            im = cv2.imread(random.choice(self.im_files))  # sample image
+            ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
+            b += im.nbytes * ratio ** 2
+        mem_required = b * self.n / n  # GB required to cache dataset into RAM
+        mem = psutil.virtual_memory()
+        cache = mem_required * (1 + safety_margin) < mem.available  # to cache or not to cache, that is the question
+        if not cache:
+            LOGGER.info(f"{prefix}{mem_required / gb:.1f}GB RAM required, "
+                        f"{mem.available / gb:.1f}/{mem.total / gb:.1f}GB available, "
+                        f"{'caching images ✅' if cache else 'not caching images ⚠️'}")
+        return cache
 
     def cache_labels_rgb(self, path=Path('./labels.cache'), prefix=''):
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
-        desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
+        desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files, self.label_files, repeat(prefix))),
                         desc=desc,
@@ -1799,7 +1832,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
                     x[im_file] = [lb, shape, segments]
                 if msg:
                     msgs.append(msg)
-                pbar.desc = f"{desc}{nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+                pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
 
         pbar.close()
         if msgs:
@@ -1822,7 +1855,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
-        desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
+        desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap(verify_image_label, zip(self.im_files_ir, self.label_files_ir, repeat(prefix))),
                         desc=desc,
@@ -1837,7 +1870,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
                     x[im_file] = [lb, shape, segments]
                 if msg:
                     msgs.append(msg)
-                pbar.desc = f"{desc}{nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+                pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
 
         pbar.close()
         if msgs:
@@ -1876,7 +1909,7 @@ class LoadMultispectralImagesAndLabels(Dataset):
             shapes = None
 
             # MixUp augmentation
-            if hyp['mixup'] > 0 and random.random() < hyp['mixup']:
+            if random.random() < hyp['mixup']:
                 img, labels = mixup(img, labels, *self.load_mosaic_rgb_ir(random.randint(0, self.n - 1)))
 
         else:
@@ -1891,10 +1924,6 @@ class LoadMultispectralImagesAndLabels(Dataset):
 
             labels = self.labels[index].copy()
             labels_ir = self.labels_ir[index].copy()
-
-            # img, labels, segments = multispectral_mixup(img, labels, img_ir, labels_ir p=self.hyp['msm'])
-            # img, labels, segments = multispectral_cutmix(img, labels, img_ir, labels_ir, p=self.hyp['mcm'])
-
             if labels.size:  # normalized xywh to pixel xyxy format
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
             if labels_ir.size:  # normalized xywh to pixel xyxy format
@@ -1977,8 +2006,8 @@ class LoadMultispectralImagesAndLabels(Dataset):
             r_ir = self.img_size / max(h0_ir, w0_ir)  # ratio
             if r != 1:  # if sizes are not equal
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
-                im = cv2.resize(im, (int(w0 * r), int(h0 * r)), interpolation=interp)
-                im_ir = cv2.resize(im_ir, (int(w0_ir * r_ir), int(h0_ir * r_ir)), interpolation=interp)
+                im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
+                im_ir = cv2.resize(im_ir, (math.ceil(w0_ir * r_ir), math.ceil(h0_ir * r_ir)), interpolation=interp)
             return im, im_ir, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
         return self.ims[i], self.ims_ir[i], self.im_hw0[i], self.im_hw[i]  # im, hw_original, hw_resized
 
@@ -2002,12 +2031,6 @@ class LoadMultispectralImagesAndLabels(Dataset):
         for i, index in enumerate(indices):
             # Load image
             img, img_ir, _, (h, w) = self.load_image_rgb_ir(index)
-            labels, segments = self.labels[index].copy(), self.segments[index].copy()
-            labels_ir, segments_ir = self.labels_ir[index].copy(), self.segments_ir[index].copy()
-
-            # img, labels, segments = multispectral_mixup(img, labels, img_ir, labels_ir, segments, segments_ir, p=self.hyp['msm'])
-            # img, labels, segments = multispectral_cutmix(img, labels, img_ir, labels_ir, segments, segments_ir, p=self.hyp['mcm'])
-
 
             # place img in img4
             if i == 0:  # top left
@@ -2031,6 +2054,8 @@ class LoadMultispectralImagesAndLabels(Dataset):
             padh = y1a - y1b
 
             # Labels
+            labels, segments = self.labels[index].copy(), self.segments[index].copy()
+            labels_ir, segments_ir = self.labels_ir[index].copy(), self.segments_ir[index].copy()
             if labels.size:
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], w, h, padw, padh)  # normalized xywh to pixel xyxy format
                 segments = [xyn2xy(x, w, h, padw, padh) for x in segments]
@@ -2124,7 +2149,6 @@ class LoadMultispectralImagesAndLabels(Dataset):
                                            shear=self.hyp['shear'],
                                            perspective=self.hyp['perspective'],
                                            border=self.mosaic_border)  # border to remove
-        
 
         return img4, labels4
 
@@ -2179,6 +2203,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
                  single_cls=False,
                  stride=32,
                  pad=0.0,
+                 min_items=0,
                  prefix=''):
         self.img_size = img_size
         self.augment = augment
@@ -2202,46 +2227,46 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
                     with open(p) as t:
                         t = t.read().strip().splitlines()
                         parent = str(p.parent) + os.sep
-                        f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                        f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
                     raise FileNotFoundError(f'{prefix}{p} does not exist')
             self.im_files = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.im_files, f'{prefix}No images found'
         except Exception as e:
-            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}')
+            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
         try:
             f = []  # image files
-            for p in path_ir if isinstance(path_ir, list) else [path_ir]:
-                p = Path(p)  # os-agnostic
-                if p.is_dir():  # dir
-                    f += glob.glob(str(p / '**' / '*.*'), recursive=True)
+            for p_ir in path_ir if isinstance(path_ir, list) else [path_ir]:
+                p_ir = Path(p_ir)  # os-agnostic
+                if p_ir.is_dir():  # dir
+                    f += glob.glob(str(p_ir / '**' / '*.*'), recursive=True)
                     # f = list(p.rglob('*.*'))  # pathlib
-                elif p.is_file():  # file
-                    with open(p) as t:
+                elif p_ir.is_file():  # file
+                    with open(p_ir) as t:
                         t = t.read().strip().splitlines()
-                        parent = str(p.parent) + os.sep
-                        f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
-                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # local to global path (pathlib)
+                        parent = str(p_ir.parent) + os.sep
+                        f += [x.replace('./', parent, 1) if x.startswith('./') else x for x in t]  # to global path
+                        # f += [p.parent / x.lstrip(os.sep) for x in t]  # to global path (pathlib)
                 else:
-                    raise FileNotFoundError(f'{prefix}{p} does not exist')
+                    raise FileNotFoundError(f'{prefix}{p_ir} does not exist')
             self.im_files_ir = sorted(x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in IMG_FORMATS)
             # self.img_files = sorted([x for x in f if x.suffix[1:].lower() in IMG_FORMATS])  # pathlib
             assert self.im_files_ir, f'{prefix}No images found'
         except Exception as e:
-            raise Exception(f'{prefix}Error loading data from {path_ir}: {e}\n{HELP_URL}')
+            raise Exception(f'{prefix}Error loading data from {path}: {e}\n{HELP_URL}') from e
 
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
         self.label_files_ir = img2label_paths(self.im_files_ir)  # labels
-        cache_path = (Path(self.label_files[0]).parent).with_suffix('.cache')
-        cache_path_ir = (Path(self.label_files_ir[0]).parent).with_suffix('.cache')
+        cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        cache_path_ir = (p_ir if p_ir.is_file() else Path(self.label_files_ir[0]).parent).with_suffix('.cache')
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # matches current version
-            assert cache['hash'] == get_hash(self.label_files+ self.im_files)  # identical hash
+            assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
         except Exception:
             cache, exists = self.cache_labels_rgb(cache_path, prefix), False  # run cache ops
         try:
@@ -2254,7 +2279,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
         if exists and LOCAL_RANK in {-1, 0}:
-            d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+            d = f"Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache['msgs']:
                 LOGGER.info('\n'.join(cache['msgs']))  # display warnings
@@ -2263,7 +2288,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         # Display cache
         nf, nm, ne, nc, n = cache_ir.pop('results')  # found, missing, empty, corrupt, total
         if exists_ir and LOCAL_RANK in {-1, 0}:
-            d = f"Scanning '{cache_path_ir}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+            d = f"Scanning {cache_path_ir}... {nf} images, {nm + ne} backgrounds, {nc} corrupt"
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache_ir['msgs']:
                 LOGGER.info('\n'.join(cache_ir['msgs']))  # display warnings
@@ -2278,7 +2303,19 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         self.shapes = np.array(shapes)
         self.im_files = list(cache.keys())  # update
         self.label_files = img2label_paths(cache.keys())  # update
-        n = len(shapes)  # number of images
+
+        # Filter images
+        if min_items:
+            include = np.array([len(x) >= min_items for x in self.labels]).nonzero()[0].astype(int)
+            LOGGER.info(f'{prefix}{n - len(include)}/{n} images filtered from dataset')
+            self.im_files = [self.im_files[i] for i in include]
+            self.label_files = [self.label_files[i] for i in include]
+            self.labels = [self.labels[i] for i in include]
+            self.segments = [self.segments[i] for i in include]
+            self.shapes = self.shapes[include]  # wh
+
+        # Create indices
+        n = len(self.shapes)  # number of images
         bi = np.floor(np.arange(n) / batch_size).astype(int)  # batch index
         nb = bi[-1] + 1  # number of batches
         self.batch = bi  # batch index of image
@@ -2294,6 +2331,16 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         self.shapes_ir = np.array(shapes)
         self.im_files_ir = list(cache_ir.keys())  # update
         self.label_files_ir = img2label_paths(cache_ir.keys())  # update
+
+        # Filter images
+        if min_items:
+            include = np.array([len(x) >= min_items for x in self.labels_ir]).nonzero()[0].astype(int)
+            LOGGER.info(f'{prefix}{n - len(include)}/{n} images filtered from dataset')
+            self.im_files_ir = [self.im_files_ir[i] for i in include]
+            self.label_files_ir = [self.label_files_ir[i] for i in include]
+            self.labels_ir = [self.labels_ir[i] for i in include]
+            self.segments_ir = [self.segments_ir[i] for i in include]
+            self.shapes_ir = self.shapes_ir[include]  # wh
 
         # Update labels
         include_class = []  # filter labels to include only these classes (optional)
@@ -2334,32 +2381,35 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
 
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride
 
-        # Cache images into RAM/disk for faster training (WARNING: large datasets may exceed system resources)
+        # Cache images into RAM/disk for faster training
+        if cache_images == 'ram' and not self.check_cache_ram(prefix=prefix):
+            cache_images = False
         self.ims = [None] * n
         self.ims_ir = [None] * n
         self.npy_files = [Path(f).with_suffix('.npy') for f in self.im_files]
         self.npy_files_ir = [Path(f).with_suffix('.npy') for f in self.im_files_ir]
         if cache_images:
-            gb = 0  # Gigabytes of cached images
+            b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
             self.im_hw0, self.im_hw = [None] * n, [None] * n
             fcn = self.cache_images_to_disk_rgb_ir if cache_images == 'disk' else self.load_image_rgb_ir
             results = ThreadPool(NUM_THREADS).imap(fcn, range(n))
             pbar = tqdm(enumerate(results), total=n, bar_format=TQDM_BAR_FORMAT, disable=LOCAL_RANK > 0)
             for i, x in pbar:
                 if cache_images == 'disk':
-                    gb += self.npy_files[i].stat().st_size
+                    b += self.npy_files[i].stat().st_size
+                    b += self.npy_files_ir[i].stat().st_size
                 else:  # 'ram'
                     self.ims[i], self.ims_ir[i], self.im_hw0[i], self.im_hw[i] = x  # im, hw_orig, hw_resized = load_image(self, i)
-                    gb += self.ims[i].nbytes
-                    gb += self.ims_ir[i].nbytes
-                pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB {cache_images})'
+                    b += self.ims[i].nbytes
+                    b += self.ims_ir[i].nbytes
+                pbar.desc = f'{prefix}Caching images ({b / gb:.1f}GB {cache_images})'
             pbar.close()
 
     def cache_labels_rgb(self, path=Path('./labels.cache'), prefix=''):
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
-        desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
+        desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap(verify_image_label_add_eoir, zip(self.im_files, self.label_files, repeat(prefix))),
                         desc=desc,
@@ -2374,7 +2424,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
                     x[im_file] = [lb, shape, segments]
                 if msg:
                     msgs.append(msg)
-                pbar.desc = f"{desc}{nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+                pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
 
         pbar.close()
         if msgs:
@@ -2397,7 +2447,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
-        desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels..."
+        desc = f"{prefix}Scanning {path.parent / path.stem}..."
         with Pool(NUM_THREADS) as pool:
             pbar = tqdm(pool.imap(verify_image_label_add_eoir, zip(self.im_files_ir, self.label_files_ir, repeat(prefix))),
                         desc=desc,
@@ -2412,7 +2462,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
                     x[im_file] = [lb, shape, segments]
                 if msg:
                     msgs.append(msg)
-                pbar.desc = f"{desc}{nf} found, {nm} missing, {ne} empty, {nc} corrupt"
+                pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
 
         pbar.close()
         if msgs:
@@ -2663,7 +2713,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         #                                     segments4_ir, 
         #                                     self.hyp['mcm'])
         
-        img4, labels4, segments4 = multispectral_box_paste_add_eoir(
+        img4, labels4, segments4 = multispectral_copy_paste_add_eoir(
                                                 img4, 
                                                 labels4, 
                                                 segments4, 
@@ -2684,7 +2734,6 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
                                            shear=self.hyp['shear'],
                                            perspective=self.hyp['perspective'],
                                            border=self.mosaic_border)  # border to remove
-        
 
         return img4, labels4
 
