@@ -5,6 +5,7 @@ python -um torch.distributed.run --nproc_per_node 8 train_multispectral_add_eoir
     --weights yolov5l.pt \
     --hyp data/hyps/hyp.add-eoir-cpp.yaml \
     --batch-size 256 \
+    --workers 56 \
     --person-only \
     --exist-ok \
     --cache ram \
