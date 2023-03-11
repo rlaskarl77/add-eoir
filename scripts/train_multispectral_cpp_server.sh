@@ -4,7 +4,7 @@ python -um torch.distributed.run --nproc_per_node 4 train_multispectral_add_eoir
     --data data/multispectral/add-eoir-test-segment-server.yaml \
     --weights yolov5l.pt \
     --hyp data/hyps/hyp.add-eoir-cpp.yaml \
-    --batch-size 256 \
+    --batch-size 128 \
     --workers 56 \
     --person-only \
     --exist-ok \
