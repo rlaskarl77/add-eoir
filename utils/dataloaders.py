@@ -2542,7 +2542,7 @@ class LoadMultispectralADDEOIRImagesAndLabels(Dataset):
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
         im_ir, f_ir, fn_ir = self.ims_ir[i], self.im_files_ir[i], self.npy_files_ir[i],
         if im is None:  # not cached in RAM
-            if fn.exists():  # load npy
+            if fn.exists() and fn_ir.exists():  # load npy
                 im = np.load(fn)
                 im_ir = np.load(fn_ir)
             else:  # read image
