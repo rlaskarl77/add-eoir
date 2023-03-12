@@ -1,5 +1,5 @@
-PROJECT='copy_paste'
-EXPERIMENTS=('v2.1_IR_bs64_midsize_noocclusion_originaldist_copypaste@1.0_100epoch')
+PROJECT='/131_data/namgi/add_eoir/checkpoints/copy_paste'
+EXPERIMENTS=('v2.1_Multispectral_bs256_midsize_noocclusion_originaldist_copypaste@1.0_150epoch')
 for exp in "${EXPERIMENTS[@]}"
 do
     for task in test val
