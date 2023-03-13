@@ -2,7 +2,7 @@ EPOCH=150
 BATCH_SIZE=128
 python -um torch.distributed.run --nproc_per_node 4 train_add_eoir.py \
     --device 0,1,2,3 \
-    --data data/add-eoir-eo-segment.yaml \
+    --data data/add-eoir-eo-segment-server.yaml \
     --weights yolov5l.pt \
     --hyp data/hyps/hyp.add-eoir-cpp-mixup.yaml \
     --batch-size ${BATCH_SIZE} \
